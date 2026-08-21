@@ -1,0 +1,15 @@
+(library
+ (name tessera_foundation)
+ (public_name tessera.foundation)
+ (libraries err_trace)
+ (modules
+  uInt
+  uInt64
+  id
+  byte_offset
+  generation
+  line_id
+  lineage_id
+  types
+  limits
+  policy))

@@ -1,0 +1,32 @@
+// For format details, see https://aka.ms/devcontainer.json.
+{
+    "name": "Tessera OCaml development",
+    "build":  {
+        "dockerfile": "Dockerfile"
+    },
+    "features": {
+        "ghcr.io/devcontainers/features/common-utils:2": {
+            "installZsh": "true",
+            "username": "vscode",
+            "userUid": "1000",
+            "userGid": "1000",
+            "upgradePackages": "false"
+        },
+        "./features/ocaml": {
+            "version": "${localEnv:OCAML_VERSION:4.14.3}",
+            "packages": "utop ocamlformat#0.28.1 uutf uuseg uucp"
+        },
+    },
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ocamllabs.ocaml-platform"
+            ]
+        }
+    },
+    "remoteUser": "vscode",
+    "postCreateCommand": {
+        "opam": "sudo .devcontainer/fix-opam-owner.sh $(id -u) $(id -g)"
+    },
+    "waitFor": "postCreateCommand"
+}

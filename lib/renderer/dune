@@ -1,0 +1,5 @@
+(library
+ (name tessera_renderer)
+ (public_name tessera.renderer)
+ (libraries tessera_foundation tessera_model err_trace)
+ (modules grid state patch renderer))

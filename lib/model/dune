@@ -1,0 +1,5 @@
+(library
+ (name tessera_model)
+ (public_name tessera.model)
+ (libraries tessera_foundation)
+ (modules style mode unicode cell collection update effect))

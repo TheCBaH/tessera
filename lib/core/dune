@@ -1,0 +1,10 @@
+(library
+ (name tessera)
+ (public_name tessera)
+ (wrapped false)
+ (libraries
+  tessera_foundation
+  tessera_model
+  tessera_renderer
+  tessera_decoder)
+ (modules tessera))

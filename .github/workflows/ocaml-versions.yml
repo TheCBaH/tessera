@@ -1,0 +1,36 @@
+name: OCaml Versions
+
+on:
+  workflow_call:
+    outputs:
+      versions:
+        description: 'JSON array of OCaml versions to build and test'
+        value: ${{ jobs.versions.outputs.versions }}
+      images_matrix:
+        description: 'JSON array of {os, ocaml_version, platform} objects for image builds'
+        value: ${{ jobs.versions.outputs.images_matrix }}
+
+jobs:
+  versions:
+    runs-on: ubuntu-slim
+    outputs:
+      versions: ${{ steps.versions.outputs.versions }}
+      images_matrix: ${{ steps.versions.outputs.images_matrix }}
+    steps:
+    - name: versions
+      id: versions
+      run: |
+        python3 - <<'EOF'
+        import json, os
+        versions = ["4.14.3", "5.5.0"]
+        matrix = [
+            {"os": "ubuntu-24.04", "ocaml_version": ver, "platform": "linux/amd64"}
+            for ver in versions
+        ]
+        def write_output(f, name, value):
+            f.write(f"{name}<<__OUTPUT__\n{value}\n__OUTPUT__\n")
+        with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+            write_output(f, "versions", json.dumps(versions, indent=2))
+            write_output(f, "images_matrix", json.dumps(matrix, indent=2))
+        EOF
+        cat "$GITHUB_OUTPUT"

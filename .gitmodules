@@ -1,0 +1,3 @@
+[submodule "vendor/err_trace"]
+	path = vendor/err_trace
+	url = https://github.com/TheCBaH/err_trace.git
