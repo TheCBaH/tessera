@@ -3,7 +3,9 @@ type cursor_move =
   | Column of Tessera_foundation.Types.Column.t
   | Down of Tessera_foundation.UInt.t
   | Forward of Tessera_foundation.UInt.t
+  | Next_line of Tessera_foundation.UInt.t
   | Position of Tessera_foundation.Types.coord
+  | Previous_line of Tessera_foundation.UInt.t
   | Row of Tessera_foundation.Types.Row.t
   | Up of Tessera_foundation.UInt.t
 
@@ -21,6 +23,7 @@ type edit =
 type margins = { bottom : Tessera_foundation.Types.Row.t; top : Tessera_foundation.Types.Row.t }
 
 type t =
+  | Alternate_screen of [ `Enter_1049 | `Leave_1049 ]
   | Backspace
   | Carriage_return
   | Edit of edit

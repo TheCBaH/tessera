@@ -44,6 +44,10 @@ val apply_delta : t -> delta -> t
 val compose_delta : earlier:delta -> later:delta -> delta
 val default : t
 val empty_delta : delta
+val indexed_color_delta : foreground:bool -> int -> delta option
+val reset_delta : delta
+val rgb_color_delta : foreground:bool -> red:int -> green:int -> blue:int -> delta option
+val sgr_delta : int -> delta option
 val pp : Format.formatter -> t -> unit
 val pp_color : Format.formatter -> color -> unit
 val pp_delta : Format.formatter -> delta -> unit

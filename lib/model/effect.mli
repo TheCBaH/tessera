@@ -4,7 +4,8 @@ type diagnostic =
   | Malformed_csi of { offset : Tessera_foundation.Byte_offset.t; reason : string }
   | Unsupported_sequence of { family : string; offset : Tessera_foundation.Byte_offset.t }
 
-type item = Observation of diagnostic | Update of Update.t
+type observation = Diagnostic of diagnostic | Resize of Tessera_foundation.Types.Size.t
+type item = Observation of observation | Update of Update.t
 
 module Item_sequence : sig
   type t
@@ -22,8 +23,9 @@ module Observation_sequence : sig
   val append : t -> t -> t
   val empty : t
   val pp : Format.formatter -> t -> unit
-  val singleton : diagnostic -> t
+  val singleton : observation -> t
 end
 
 val pp_diagnostic : Format.formatter -> diagnostic -> unit
 val pp_item : Format.formatter -> item -> unit
+val pp_observation : Format.formatter -> observation -> unit

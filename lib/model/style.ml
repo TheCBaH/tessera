@@ -71,6 +71,58 @@ let empty_delta =
     underline = Keep;
   }
 
+let reset_delta =
+  {
+    background = Set Default;
+    bold = Set false;
+    faint = Set false;
+    foreground = Set Default;
+    invisible = Set false;
+    inverse = Set false;
+    italic = Set false;
+    strikethrough = Set false;
+    underline = Set false;
+  }
+
+let indexed_color_delta ~foreground index =
+  match Palette_index.of_int index with
+  | None -> None
+  | Some index ->
+      Some
+        (if foreground then { empty_delta with foreground = Set (Indexed index) }
+         else { empty_delta with background = Set (Indexed index) })
+
+let rgb_color_delta ~foreground ~red ~green ~blue =
+  match Rgb.make ~red ~green ~blue with
+  | None -> None
+  | Some color ->
+      Some
+        (if foreground then { empty_delta with foreground = Set (Rgb color) }
+         else { empty_delta with background = Set (Rgb color) })
+
+let sgr_delta = function
+  | 0 -> Some reset_delta
+  | 1 -> Some { empty_delta with bold = Set true }
+  | 2 -> Some { empty_delta with faint = Set true }
+  | 3 -> Some { empty_delta with italic = Set true }
+  | 4 -> Some { empty_delta with underline = Set true }
+  | 7 -> Some { empty_delta with inverse = Set true }
+  | 8 -> Some { empty_delta with invisible = Set true }
+  | 9 -> Some { empty_delta with strikethrough = Set true }
+  | 22 -> Some { empty_delta with bold = Set false; faint = Set false }
+  | 23 -> Some { empty_delta with italic = Set false }
+  | 24 -> Some { empty_delta with underline = Set false }
+  | 27 -> Some { empty_delta with inverse = Set false }
+  | 28 -> Some { empty_delta with invisible = Set false }
+  | 29 -> Some { empty_delta with strikethrough = Set false }
+  | value when value >= 30 && value <= 37 -> indexed_color_delta ~foreground:true (value - 30)
+  | 39 -> Some { empty_delta with foreground = Set Default }
+  | value when value >= 40 && value <= 47 -> indexed_color_delta ~foreground:false (value - 40)
+  | 49 -> Some { empty_delta with background = Set Default }
+  | value when value >= 90 && value <= 97 -> indexed_color_delta ~foreground:true (value - 82)
+  | value when value >= 100 && value <= 107 -> indexed_color_delta ~foreground:false (value - 92)
+  | _ -> None
+
 let select (old : 'a) (field : 'a field) = match field with Keep -> old | Set value -> value
 
 let apply_delta (style : t) (delta : delta) : t =

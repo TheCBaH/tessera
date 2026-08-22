@@ -1,5 +1,6 @@
 (library
  (name tessera_model)
  (public_name tessera.model)
- (libraries tessera_foundation)
+ (modes byte native melange)
+ (libraries tessera_foundation tessera_uucp tessera_uuseg tessera_uutf)
  (modules style mode unicode cell collection update effect))

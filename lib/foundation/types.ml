@@ -67,6 +67,11 @@ let rect ~bottom ~left ~right ~top =
   if Row.compare top bottom > 0 || Column.compare left right > 0 then E.fail `Invalid_rect
   else Ok { bottom; left; right; top }
 
+let rect_bottom value = value.bottom
+let rect_left value = value.left
+let rect_right value = value.right
+let rect_top value = value.top
+
 let slice bytes ~len ~off =
   let length = Bytes.length bytes in
   let offset = UInt.to_int off and requested = UInt.to_int len in

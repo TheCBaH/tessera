@@ -42,6 +42,10 @@ val pp_rect : Format.formatter -> rect -> unit
 val pp_screen : Format.formatter -> screen -> unit
 val pp_slice : Format.formatter -> slice -> unit
 val rect : bottom:Row.t -> left:Column.t -> right:Column.t -> top:Row.t -> (rect, error) Err.t
+val rect_bottom : rect -> Row.t
+val rect_left : rect -> Column.t
+val rect_right : rect -> Column.t
+val rect_top : rect -> Row.t
 val slice : bytes -> len:UInt.t -> off:UInt.t -> (slice, error) Err.t
 val slice_bytes : slice -> bytes
 val slice_len : slice -> UInt.t

@@ -1,6 +1,7 @@
 (library
  (name tessera_foundation)
  (public_name tessera.foundation)
+ (modes byte native melange)
  (libraries err_trace)
  (modules
   uInt

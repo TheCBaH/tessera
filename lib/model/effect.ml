@@ -4,7 +4,8 @@ type diagnostic =
   | Malformed_csi of { offset : Tessera_foundation.Byte_offset.t; reason : string }
   | Unsupported_sequence of { family : string; offset : Tessera_foundation.Byte_offset.t }
 
-type item = Observation of diagnostic | Update of Update.t
+type observation = Diagnostic of diagnostic | Resize of Tessera_foundation.Types.Size.t
+type item = Observation of observation | Update of Update.t
 
 let pp_diagnostic ppf = function
   | Control_string_too_long { kind; offset } ->
@@ -15,8 +16,12 @@ let pp_diagnostic ppf = function
   | Unsupported_sequence { family; offset } ->
       Format.fprintf ppf "unsupported-sequence(family=%S; offset=%a)" family Tessera_foundation.Byte_offset.pp offset
 
+let pp_observation ppf = function
+  | Diagnostic value -> Format.fprintf ppf "diagnostic(%a)" pp_diagnostic value
+  | Resize value -> Format.fprintf ppf "resize(%a)" Tessera_foundation.Types.Size.pp value
+
 let pp_item ppf = function
-  | Observation value -> Format.fprintf ppf "observation(%a)" pp_diagnostic value
+  | Observation value -> Format.fprintf ppf "observation(%a)" pp_observation value
   | Update value -> Format.fprintf ppf "update(%a)" Update.pp value
 
 module Item_sequence = struct
@@ -34,7 +39,7 @@ module Item_sequence = struct
 end
 
 module Observation_sequence = struct
-  type t = diagnostic list
+  type t = observation list
 
   let empty = []
   let singleton value = [ value ]
@@ -42,6 +47,6 @@ module Observation_sequence = struct
 
   let pp ppf value =
     Format.fprintf ppf "[%a]"
-      (Format.pp_print_list ~pp_sep:(fun ppf () -> Format.pp_print_string ppf "; ") pp_diagnostic)
+      (Format.pp_print_list ~pp_sep:(fun ppf () -> Format.pp_print_string ppf "; ") pp_observation)
       value
 end

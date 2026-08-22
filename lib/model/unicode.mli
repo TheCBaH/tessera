@@ -13,6 +13,7 @@ module Grapheme_sequence : sig
   val empty : t
   val fold_left : ('a -> grapheme -> 'a) -> 'a -> t -> 'a
   val singleton : grapheme -> t
+  val utf8 : t -> string
   val pp : Format.formatter -> t -> unit
 end
 
@@ -30,4 +31,5 @@ val pp_error : Format.formatter -> error -> unit
 val pp_grapheme : Format.formatter -> grapheme -> unit
 val pp_scalar : Format.formatter -> scalar -> unit
 val pp_width : Format.formatter -> width -> unit
+val utf8 : grapheme -> string
 val width : grapheme -> width

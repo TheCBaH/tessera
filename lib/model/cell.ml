@@ -5,6 +5,7 @@ let blank ~line_id ~style = { contents = Empty; line_id; style }
 let glyph ~line_id ~style grapheme = { contents = Glyph grapheme; line_id; style }
 let wide_continuation ~line_id ~style = { contents = Wide_continuation; line_id; style }
 let contents value = value.contents
+let equal left right = left = right
 let line_id value = value.line_id
 let style value = value.style
 

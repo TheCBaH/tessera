@@ -4,7 +4,19 @@ type delta = { auto_wrap : bool field; cursor_visible : bool field; insert : boo
 
 let set value = Set value
 let default : t = { auto_wrap = true; cursor_visible = true; insert = false; origin = false }
+let auto_wrap (value : t) = value.auto_wrap
+let cursor_visible (value : t) = value.cursor_visible
+let insert (value : t) = value.insert
+let origin (value : t) = value.origin
 let empty_delta : delta = { auto_wrap = Keep; cursor_visible = Keep; insert = Keep; origin = Keep }
+let ansi_mode_delta ~enabled = function 4 -> Some { empty_delta with insert = Set enabled } | _ -> None
+
+let private_mode_delta ~enabled = function
+  | 6 -> Some { empty_delta with origin = Set enabled }
+  | 7 -> Some { empty_delta with auto_wrap = Set enabled }
+  | 25 -> Some { empty_delta with cursor_visible = Set enabled }
+  | _ -> None
+
 let select (old : 'a) (field : 'a field) = match field with Keep -> old | Set value -> value
 
 let apply_delta (mode : t) (delta : delta) : t =
