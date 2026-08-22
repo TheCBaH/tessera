@@ -1,0 +1,45 @@
+(library
+ (name tessera_expect)
+ (modules grid_test)
+ (inline_tests
+  (modes byte native))
+ (libraries fmt tessera tessera.foundation tessera.model tessera.renderer)
+ (preprocess
+  (pps ppx_expect)))
+
+(library
+ (name tessera_public_expect)
+ (modules public_api_test)
+ (inline_tests
+  (modes byte native))
+ (libraries fmt tessera)
+ (preprocess
+  (pps ppx_expect)))
+
+(library
+ (name tessera_runtime_fixture)
+ (modes byte native melange)
+ (modules runtime_fixture)
+ (libraries tessera))
+
+(test
+ (name runtime_fixture_test)
+ (modules runtime_fixture_test)
+ (libraries tessera_runtime_fixture))
+
+(executable
+ (name js_smoke)
+ (modules js_smoke)
+ (modes js)
+ (libraries tessera_runtime_fixture))
+
+(alias
+ (name jsoo)
+ (deps js_smoke.bc.js))
+
+(melange.emit
+ (target melange-output)
+ (alias tessera-melange)
+ (modules melange_smoke)
+ (module_systems commonjs)
+ (libraries tessera_runtime_fixture))

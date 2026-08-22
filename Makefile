@@ -2,16 +2,27 @@
 default: build
 
 build:
-	opam exec -- dune build
+	ERR_TRACE_TEST_MELANGE=true opam exec -- dune build
+
+jsoo:
+	ERR_TRACE_TEST_MELANGE=true opam exec -- dune build @jsoo
+
+melange:
+	ERR_TRACE_TEST_MELANGE=true opam exec -- dune build @tessera-melange
 
 format:
-	opam exec -- dune fmt
+	ERR_TRACE_TEST_MELANGE=true opam exec -- dune fmt
 
 format-check:
-	opam exec -- dune build @fmt
+	ERR_TRACE_TEST_MELANGE=true opam exec -- dune build @fmt
 
 test:
-	opam exec -- dune runtest --auto-promote
+	ERR_TRACE_TEST_MELANGE=true opam exec -- dune runtest
+
+check: format build test jsoo melange format-check
+
+precommit: check
+	git diff --check
 
 pristine:
 	@status="$$(git status --short)"; \
@@ -24,6 +35,6 @@ pristine:
 	fi
 
 clean:
-	opam exec -- dune $@
+	ERR_TRACE_TEST_MELANGE=true opam exec -- dune $@
 
-.PHONY: default build clean format format-check pristine test
+.PHONY: check default build clean format format-check jsoo melange precommit pristine test
