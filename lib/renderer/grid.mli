@@ -1,6 +1,8 @@
 type t
 
 val get : t -> Tessera_foundation.Types.coord -> Tessera_model.Cell.t
+val cells : t -> Tessera_model.Cell.t array
+val fold_left : ('a -> Tessera_foundation.Types.coord -> Tessera_model.Cell.t -> 'a) -> 'a -> t -> 'a
 val iter : (Tessera_foundation.Types.coord -> Tessera_model.Cell.t -> unit) -> t -> unit
 val resize : t -> Tessera_foundation.Types.Size.t -> t
 val set : t -> Tessera_foundation.Types.coord -> Tessera_model.Cell.t -> t

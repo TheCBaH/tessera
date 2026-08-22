@@ -1,5 +1,6 @@
 (library
  (name tessera_renderer)
  (public_name tessera.renderer)
+ (modes byte native melange)
  (libraries tessera_foundation tessera_model err_trace)
  (modules grid state patch renderer))
