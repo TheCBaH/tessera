@@ -1,0 +1,13 @@
+(library
+ (name tessera_test_public)
+ (modules public_api_test)
+ (inline_tests
+  (modes byte native))
+ (libraries fmt tessera)
+ (preprocess
+  (pps ppx_expect)))
+
+(alias
+ (name test-public)
+ (deps
+  (alias runtest)))

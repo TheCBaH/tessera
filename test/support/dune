@@ -1,0 +1,4 @@
+(library
+ (name tessera_test_support)
+ (modules support)
+ (libraries fmt tessera_foundation tessera_model))

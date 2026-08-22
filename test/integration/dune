@@ -1,0 +1,13 @@
+(library
+ (name tessera_test_integration)
+ (modules round_trip)
+ (inline_tests
+  (modes byte native))
+ (libraries fmt tessera_test_support tessera)
+ (preprocess
+  (pps ppx_expect)))
+
+(alias
+ (name test-integration)
+ (deps
+  (alias runtest)))

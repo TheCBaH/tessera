@@ -1,0 +1,3 @@
+(library
+ (name tessera_test_fixtures)
+ (modules fixtures))

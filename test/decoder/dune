@@ -1,0 +1,18 @@
+(library
+ (name tessera_test_decoder)
+ (modules decoder_support c0_esc csi strings chunking)
+ (inline_tests
+  (modes byte native))
+ (libraries
+  fmt
+  tessera_test_support
+  tessera_foundation
+  tessera_model
+  tessera_decoder)
+ (preprocess
+  (pps ppx_expect)))
+
+(alias
+ (name test-decoder)
+ (deps
+  (alias runtest)))

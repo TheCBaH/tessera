@@ -1,0 +1,18 @@
+(library
+ (name tessera_test_encoder)
+ (modules encoder)
+ (inline_tests
+  (modes byte native))
+ (libraries
+  fmt
+  tessera_test_support
+  tessera_foundation
+  tessera_model
+  tessera_terminfo)
+ (preprocess
+  (pps ppx_expect)))
+
+(alias
+ (name test-encoder)
+ (deps
+  (alias runtest)))

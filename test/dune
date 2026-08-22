@@ -1,20 +1,6 @@
-(library
- (name tessera_expect)
- (modules grid_test)
- (inline_tests
-  (modes byte native))
- (libraries fmt tessera tessera.foundation tessera.model tessera.renderer)
- (preprocess
-  (pps ppx_expect)))
-
-(library
- (name tessera_public_expect)
- (modules public_api_test)
- (inline_tests
-  (modes byte native))
- (libraries fmt tessera)
- (preprocess
-  (pps ppx_expect)))
+; Native ppx_expect suites, split by component. Aliases below run one layer at a time; @runtest
+; (dune build @runtest / dune runtest / make test) aggregates all of them plus the JSOO/Melange
+; runtime-fixture targets. See test/README.md for the full alias list and dependency rules.
 
 (library
  (name tessera_runtime_fixture)

@@ -1,0 +1,13 @@
+(library
+ (name tessera_test_model)
+ (modules collection unicode)
+ (inline_tests
+  (modes byte native))
+ (libraries fmt tessera_test_support tessera_foundation tessera_model)
+ (preprocess
+  (pps ppx_expect)))
+
+(alias
+ (name test-model)
+ (deps
+  (alias runtest)))

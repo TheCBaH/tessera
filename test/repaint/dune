@@ -1,0 +1,19 @@
+(library
+ (name tessera_test_repaint)
+ (modules repaint)
+ (inline_tests
+  (modes byte native))
+ (libraries
+  fmt
+  tessera_test_support
+  tessera_foundation
+  tessera_model
+  tessera_renderer
+  tessera_terminfo)
+ (preprocess
+  (pps ppx_expect)))
+
+(alias
+ (name test-repaint)
+ (deps
+  (alias runtest)))
