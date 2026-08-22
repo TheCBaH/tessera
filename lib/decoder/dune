@@ -1,5 +1,6 @@
 (library
  (name tessera_decoder)
  (public_name tessera.decoder)
+ (modes byte native melange)
  (libraries tessera_foundation tessera_model err_trace)
  (modules decoder))
