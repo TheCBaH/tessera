@@ -1,3 +1,15 @@
 [submodule "vendor/err_trace"]
 	path = vendor/err_trace
 	url = https://github.com/TheCBaH/err_trace.git
+[submodule "vendor/uutf"]
+	path = vendor/unicode/uutf
+	url = https://github.com/dbuenzli/uutf.git
+	branch = master
+[submodule "vendor/uuseg"]
+	path = vendor/unicode/uuseg
+	url = https://github.com/dbuenzli/uuseg.git
+	branch = master
+[submodule "vendor/uucp"]
+	path = vendor/unicode/uucp
+	url = https://github.com/dbuenzli/uucp.git
+	branch = master

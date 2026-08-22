@@ -1,0 +1,48 @@
+; The upstream releases are pure OCaml but use legacy Findlib META metadata.
+; Copy only their source modules into this Dune scope: this lets native OCaml,
+; JSOO, and Melange compile the same submodule revisions without importing the
+; upstream build/test tooling.
+(copy_files# uutf/src/*.{ml,mli})
+(copy_files# uuseg/src/*.{ml,mli})
+(copy_files# uucp/src/uucp__*.{ml,mli})
+(copy_files# uucp/src/uucp_*_data.ml)
+(copy_files# uucp/src/uucp_*_base.ml)
+(copy_files# uucp/src/uucp_cmap.ml)
+(copy_files# uucp/src/uucp_fmt.ml)
+(copy_files# uucp/src/uucp_rmap.ml)
+(copy_files# uucp/src/uucp_tmap5bytes.ml)
+(copy_files# uucp/src/uucp_tmapbool.ml)
+(copy_files# uucp/src/uucp_tmapbyte.ml)
+
+(library
+ (name tessera_uutf)
+ (public_name tessera.uutf)
+ (wrapped false)
+ (modes byte native melange)
+ (modules uutf))
+
+(library
+ (name tessera_uucp)
+ (public_name tessera.uucp)
+ (wrapped false)
+ (modes byte native melange)
+ (modules
+  uucp
+  uucp__break uucp_break_base uucp_break_data
+  uucp_cmap uucp_fmt
+  uucp__emoji uucp_emoji_data
+  uucp__gc uucp_gc_base uucp_gc_data
+  uucp_rmap
+  uucp_tmapbool uucp_tmapbyte
+  uucp_version_data
+  uucp__white uucp_white_data))
+
+(library
+ (name tessera_uuseg)
+ (public_name tessera.uuseg)
+ (wrapped false)
+ (modes byte native melange)
+ (libraries tessera_uucp)
+ (modules
+  uuseg_base uuseg_buf uuseg_grapheme_cluster uuseg_word uuseg_sentence
+  uuseg_line_break uuseg uuseg_string))
