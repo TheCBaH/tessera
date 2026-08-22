@@ -209,19 +209,22 @@ policy, and next batch. None relies on hidden mutable process state.
 
 Restarting a decoder at an arbitrary byte boundary without its continuation is
 not valid: an incomplete UTF-8 sequence or control string would be ambiguous.
-An empty continuation is valid only at a known stream boundary. A durable proxy
-checkpoint therefore includes the decoder continuation, logical-renderer state,
-selected terminal description and policies, and the ordered-position metadata
-needed by its out-of-band observer. Restoring that checkpoint is deterministic;
-maintaining process, PTY, and system-terminal connectivity across a restart is
-an adapter concern.
+An empty continuation is valid only at a known stream boundary. A durable core
+checkpoint is therefore created only after a completed ingress transition and
+contains the versioned policy, decoder continuation, and logical-renderer
+state. A proxy wraps it with its selected terminal-description identity and
+observer position metadata. Neither form contains signals, descriptors, pixel
+geometry, borrowed buffers, or adapter lifecycle state. Restoring the core
+checkpoint is deterministic and performs no I/O; maintaining process, PTY, and
+system-terminal connectivity across a restart is an adapter concern.
 
 ## Text and display-width policy
 
-Text is interpreted as UTF-8, with a pinned Unicode 15.1 width policy.
+Text is interpreted as UTF-8, with a width policy based on the recorded
+upstream Unicode submodule revisions.
 Combining characters attach to the preceding printable cell when possible;
 East Asian ambiguous-width characters are one column; wide and emoji
-characters follow that pinned table. Invalid UTF-8 is rendered as a replacement
+characters follow those tables. Invalid UTF-8 is rendered as a replacement
 character and reported as a diagnostic.
 
 This is deliberately deterministic, not an attempt to mirror every host

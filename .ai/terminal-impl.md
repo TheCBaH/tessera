@@ -2,14 +2,17 @@
 
 ## Deliverable
 
-This increment implements one portable, pure Dune library named tessera. It accepts fragmented application-output byte slices for a fixed xterm-256color core profile and produces:
+This increment implements one portable, pure Dune library named tessera. It
+accepts serialised semantic ingress for a fixed xterm-256color core profile:
+fragmented application-output byte slices and explicit validated resize
+notifications. It produces:
 
 - an explicit decoder continuation;
 - ordered semantic updates and bounded diagnostics;
 - an immutable logical screen state;
 - precise screen damage and a cell snapshot.
 
-The deliverable ends at the pure core boundary. It is buildable and tested on native OCaml, js_of_ocaml, and Melange. The fixed profile is a typed value, not parsed configuration data.
+The deliverable ends at the pure core boundary. It is buildable and tested on native OCaml, js_of_ocaml, and Melange. The fixed profile is a typed value, not parsed configuration data. The core has no scheduler, PTY, signal, browser-layout, or observer-wire dependency: an adapter turns those host concerns into the serial ingress vocabulary.
 
 The package name is `tessera`; the public OCaml namespace is `Tessera`.
 
@@ -132,8 +135,8 @@ The library has four runtime dependencies:
 | --- | --- |
 | OCaml standard library | bytes, immutable collections, Format printers, Uchar, Int64, and Result. |
 | err_trace | Typed errors and bounded provenance through the Err module. |
-| uutf | Incremental UTF-8 decoding. |
-| uuseg and uucp | Pinned Unicode 15.1 grapheme segmentation and character properties used by width calculation. |
+| Vendored uutf | Upstream UTF-8 codec source, compiled by the local Dune overlay. |
+| Vendored uuseg and uucp | Upstream grapheme segmentation and character-property source used by width calculation, compiled from the same submodules for every portable target. |
 
 The test profile adds ppx_expect, Alcotest, QCheck, benchmark, and memtrace. The core library has no Unix, scheduler, filesystem, JavaScript-binding, or C-stub dependency.
 
@@ -167,8 +170,8 @@ The test profile adds ppx_expect, Alcotest, QCheck, benchmark, and memtrace. The
 | Renderer | initial, apply, damage, snapshot, applied, patch production, and pure update semantics | Policy, Update, Effect, Patch, State, Grid, Cell, Unicode, Err |
 | Decode_state | private byte-parser continuations and bounded accumulators | Types, Limits, Unicode |
 | Decoder | initial, feed, finish, and decoded ordered items | Policy, Update, Effect, Decode_state, Unicode, Err |
-| Session | initial and feed_output composition boundary | Policy, Decoder, Renderer, State, Effect, Err |
-| Tessera | narrow re-export facade: policy construction, session construction, feed_output, snapshot and printers | Session and public model modules |
+| Session | initial, serial ingress, and finish composition boundary | Policy, Decoder, Renderer, State, Effect, Err |
+| Tessera | narrow re-export facade: policy construction, session construction, ingest, finish, snapshot and printers | Session and public model modules |
 | Pp | test-only stable printers for every public value | Tessera |
 | Properties | QCheck generators and invariant checks | Tessera, QCheck |
 | Allocation | native-only allocation and structural-sharing checks | Tessera, Gc, benchmark, memtrace |
@@ -353,7 +356,7 @@ deltas; the renderer applies them to its current style.
     type grapheme
     type width = One | Two | Zero
 
-Unicode.feed consumes a decoded scalar and returns zero or more completed graphemes plus a new continuation. It preserves a bounded pending grapheme across calls; Unicode.finish flushes it at end of stream. Width uses the pinned Uucp data and the policy stated in terminal-idea.md: ambiguous width one, combining marks zero, and wide/emoji width two.
+Unicode.feed consumes a decoded scalar and returns zero or more completed graphemes plus a new continuation. It preserves a bounded pending grapheme across calls; Unicode.finish flushes it at end of stream. Width uses the vendored Uucp data and the policy stated in terminal-idea.md: ambiguous width one, combining marks zero, and wide/emoji width two.
 
     type contents = Empty | Glyph of grapheme | Wide_continuation
     type t = { contents : contents; line_id : Line_id.t; style : Style.t }
@@ -367,7 +370,9 @@ A printable wide grapheme always creates a Glyph lead cell followed by Wide_cont
       | Column of Column.t
       | Down of UInt.t
       | Forward of UInt.t
+      | Next_line of UInt.t
       | Position of coord
+      | Previous_line of UInt.t
       | Row of Row.t
       | Up of UInt.t
 
@@ -385,6 +390,7 @@ A printable wide grapheme always creates a Glyph lead cell followed by Wide_cont
     type margins = { bottom : Row.t; top : Row.t }
 
     type t =
+      | Alternate_screen of [ `Enter_1049 | `Leave_1049 ]
       | Backspace
       | Carriage_return
       | Edit of edit
@@ -414,20 +420,28 @@ A printable wide grapheme always creates a Glyph lead cell followed by Wide_cont
       | Malformed_csi of { offset : Byte_offset.t; reason : string }
       | Unsupported_sequence of { family : string; offset : Byte_offset.t }
 
-    type item = Observation of diagnostic | Update of Update.t
+    type observation =
+      | Diagnostic of diagnostic
+      | Resize of Size.t
 
-Decoder returns `Effect.Item_sequence.t` in byte-stream order. Session extracts
-updates while retaining the original ordered items in its outcome for
-diagnostics and tests. `Unicode.Grapheme_sequence.t` is similarly an ordered,
-duplicate-preserving sequence: scalar order is part of a grapheme, so it is
-not a set/map or a publicly mutable array.
+    type item = Observation of observation | Update of Update.t
+
+Decoder returns `Effect.Item_sequence.t` in byte-stream order, emitting only
+`Diagnostic` observations. Session retains those ordered items in its outcome
+for diagnostics and tests, and adds a `Resize` observation when it accepts an
+out-of-band resize ingress. `Unicode.Grapheme_sequence.t` is similarly an
+ordered, duplicate-preserving sequence: scalar order is part of a grapheme, so
+it is not a set/map or a publicly mutable array.
 
 Update.Batch.normalize is a sequence-only, semantics-preserving canonicaliser.
 It merges adjacent printable grapheme sequences and composes adjacent Set_style
 and Set_mode deltas. It retains cursor-relative movement, edit, erase, scroll,
 margin, screen, reset, resize, and title operations in order because their
-meaning can depend on the renderer state. A normalised batch is equivalent to
-the original batch for every valid renderer state.
+meaning can depend on the renderer state. In particular, a resize is never
+removed merely because its `Size.t` equals the current geometry: a
+session-induced resize notification is an observable full-projection refresh.
+A normalised batch is equivalent to the original batch for every valid renderer
+state.
 
 ### Collection boundaries
 
@@ -495,14 +509,20 @@ applies last-writer-wins to duplicate coordinates, compacts adjacent compatible
 replacements into maximal row runs and rectangles, and normalises damage
 rectangles.
 
+Every patch produced for `Update.Resize` has `size = Set resulting_size`, even
+when `resulting_size` equals the prior size. It carries the complete resulting
+physical projection and full damage. This makes a resize record and refresh
+unambiguous to an observer; it is not an inferred side effect of a geometry
+comparison.
+
 Patch.compose left right accepts only equal lineage IDs and an adjacent
 generation chain. It overlays right cell blocks on left cell blocks; right
 presentation fields replace left fields when set; and observations are appended
-in order. If right changes size, it discards left cell replacements and damage
-because their coordinates belong to the old geometry. The result has
-left.before_generation, right.after_generation, and exactly the same resulting
-projection as applying left then right to a consumer projection. Composition
-reads no Renderer.state or Grid.t.
+in order. A right patch with `size = Set _` is a full-projection barrier: it
+discards left cell replacements and damage, including for a same-geometry
+resize. The result has left.before_generation, right.after_generation, and
+exactly the same resulting projection as applying left then right to a consumer
+projection. Composition reads no Renderer.state or Grid.t.
 
 ### Repaint: Patch → updates → encoded bytes (second increment)
 
@@ -599,7 +619,7 @@ Grid uses pages of 32 columns by 8 rows. A page is an immutable Cell.t array. Th
       ; snapshot : snapshot
       ; state : state }
 
-Renderer.apply handles the batch left to right. It clamps cursor motions to the active margins, performs autowrap before a printable cell when pending_wrap is true, scrolls within margins, and marks the smallest affected rectangle. Resize allocates the new physical size without reflow; it clips cells, clamps margins/cursor, and returns full damage.
+Renderer.apply handles the batch left to right. It clamps cursor motions to the active margins, performs autowrap before a printable cell when pending_wrap is true, scrolls within margins, and marks the smallest affected rectangle. Resize changes the physical size without reflow; it clips cells and clamps margins/cursor when needed. Every accepted resize is a generation-advancing transition, including one to the current size, and returns a full-damage patch and complete snapshot projection.
 
 ### Decoder continuation and session
 
@@ -619,6 +639,10 @@ Renderer.apply handles the batch left to right. It clamps cursor motions to the 
     type decoded =
       { continuation : continuation; items : Effect.Item_sequence.t }
 
+    type byte_input = Types.slice
+    type out_of_band = Resize of Size.t
+    type input = Bytes of byte_input | Out_of_band of out_of_band
+
     type session =
       { decoder : Decoder.continuation
       ; policy : Policy.t
@@ -631,7 +655,58 @@ Renderer.apply handles the batch left to right. It clamps cursor motions to the 
       ; session : session
       ; snapshot : Renderer.snapshot }
 
-Session.feed_output first calls Decoder.feed with the supplied slice, extracts updates in item order, then calls Renderer.apply exactly once. Its `snapshot` and `patch` fields are pass-through renderer outputs; Session does not construct either. The returned session is the only state needed for the next call.
+`Session.ingest` is one total, synchronous transition over exactly one input.
+For `Bytes slice`, it calls `Decoder.feed`, extracts updates in item order, and
+calls `Renderer.apply` exactly once. For `Out_of_band (Resize size)`, it does
+not decode or forward bytes: it applies a singleton `Update.Resize size`, emits
+one ordered `Observation (Resize size)`, and returns the resulting full-damage
+patch and snapshot. It performs that transition even when `size` equals the
+renderer geometry. Its `snapshot` and `patch` fields are pass-through renderer
+outputs; Session does not construct either. The returned session is the only
+state needed for the next call.
+
+`Session.finish` is the explicit end-of-byte-stream transition. It calls
+`Decoder.finish`, applies its remaining updates once, and returns their ordered
+diagnostics and projection. EOF is not represented by a synthetic terminal
+update or an `out_of_band` constructor. A checkpoint may be taken only between
+completed `ingest` or `finish` calls.
+
+### Checkpoint boundary and serialisation
+
+`Checkpoint.V1` is the portable-core checkpoint contract. Its canonical,
+length-delimited codec contains exactly a format version, the canonical policy
+value, decoder continuation, and renderer state. It is constructed only from a
+completed `Session.t`: the value returned by `initial` or by `successor` after
+a successful `ingest` or `finish`. It never represents a borrowed byte slice,
+an input in progress, or an unobserved partial outcome. The codec rejects an
+unknown version, malformed field length, duplicate or missing field, and any
+restored value that violates the restored policy limits; it is not an OCaml
+`Marshal` payload.
+
+The core payload deliberately excludes terminal-description identity and
+observer sequence positions, because Session neither selects a description nor
+owns observers. A proxy may wrap `Checkpoint.V1` in its own versioned envelope
+containing those two identities. Signals, file descriptors, tasks/promises,
+process or adapter lifecycle state, borrowed buffers, pixel geometry, and CSS
+measurements are invalid in both forms. Restoring a core checkpoint performs no
+I/O; an adapter re-establishes its host resources before it resumes ingress.
+
+The portable `out_of_band` vocabulary contains only events with a deterministic
+core transition. It does not expose signals, descriptor readiness, cancellation,
+process exit, observer disconnect, pixels, or browser CSS measurements. An
+adapter validates positive character rows/columns and serialises the resulting
+input with byte ingress in its observed dequeue order. Pixel geometry and its
+unit, raw host notifications, PTY ioctls, and lifecycle errors remain adapter
+or observer-protocol data; they never enter a portable checkpoint.
+
+The ordering contract is deliberately local: bytes already passed to `ingest`
+precede a later resize; an adapter chooses and preserves an order for inputs
+ready together. A Linux proxy processes a pending resize before previously
+unread child output, while a browser adapter enqueues each completed-layout
+callback through the same boundary. Distinct validated callbacks retain their
+order. A coalesced host notification contributes only the geometry the adapter
+actually re-queries or receives; the core never invents a missing intermediate
+size.
 
 ## Core component signatures
 
@@ -914,7 +989,10 @@ point, so adapters—not the pure core—own session-domain uniqueness.
 
     module Effect : sig
       type diagnostic
-      type item = Observation of diagnostic | Update of Update.t
+      type observation =
+        | Diagnostic of diagnostic
+        | Resize of Types.Size.t
+      type item = Observation of observation | Update of Update.t
       module Item_sequence : sig
         type t
         val append : t -> t -> t
@@ -930,6 +1008,7 @@ point, so adapters—not the pure core—own session-domain uniqueness.
       end
       val pp_diagnostic : Format.formatter -> diagnostic -> unit
       val pp_item : Format.formatter -> item -> unit
+      val pp_observation : Format.formatter -> observation -> unit
     end
 
 `Cell_blocks`, `Damage`, and `Snapshot_cells` disclose no mutable array.
@@ -971,6 +1050,7 @@ set/map traversal because their order is semantic.
 
     module Renderer : sig
       type applied
+      type damage
       type error =
         [ `Identifier_exhausted
         | `Invalid_operation
@@ -982,9 +1062,11 @@ set/map traversal because their order is semantic.
       val apply : Policy.t -> state -> Update.Batch.t
         -> (applied, error) Err.t
       val initial : lineage_id:Lineage_id.t -> policy:Policy.t -> size:Types.Size.t -> state
+      val damage : applied -> damage
       val patch : applied -> Patch.t
       val pp : Format.formatter -> state -> unit
       val pp_applied : Format.formatter -> applied -> unit
+      val pp_damage : Format.formatter -> damage -> unit
       val pp_snapshot : Format.formatter -> snapshot -> unit
       val snapshot : applied -> snapshot
       val state : applied -> state
@@ -1058,13 +1140,17 @@ opaque decoder continuations, renderer states, snapshots, and patches.
 
     module Session : sig
       type error = [ `Decode of Decoder.error | `Render of Renderer.error ]
+      type byte_input = Types.slice
+      type out_of_band = Resize of Types.Size.t
+      type input = Bytes of byte_input | Out_of_band of out_of_band
       type outcome
       type t
       val pp_error : Format.formatter -> error -> unit
       val pp_outcome : Format.formatter -> outcome -> unit
       val pp : Format.formatter -> t -> unit
       module E : Err.S with type error = error
-      val feed_output : t -> Types.slice
+      val finish : t -> (outcome, error) Err.t
+      val ingest : t -> input
         -> (outcome, error) Err.t
       val initial : lineage_id:Lineage_id.t -> policy:Policy.t -> size:Types.Size.t -> t
       val items : outcome -> Effect.Item_sequence.t
@@ -1076,7 +1162,9 @@ opaque decoder continuations, renderer states, snapshots, and patches.
     module Tessera : sig
       type outcome = Session.outcome
       type session = Session.t
-      val feed_output : session -> Types.slice
+      type input = Session.input
+      val finish : session -> (outcome, Session.error) Err.t
+      val ingest : session -> input
         -> (outcome, Session.error) Err.t
       val initial : lineage_id:Lineage_id.t -> policy:Policy.t -> size:Types.Size.t -> session
       val outcome_items : outcome -> Effect.Item_sequence.t
@@ -1088,9 +1176,9 @@ opaque decoder continuations, renderer states, snapshots, and patches.
     end
 
 `Encoder.encode` has no target state, and `Repaint.compile` has no I/O. An
-adapter owns the ordered write of encoded byte chunks. `Tessera.feed_output` is
-the normal pure-core entry point; all platform adapters only supply slices and
-process its returned outcome.
+adapter owns the ordered write of encoded byte chunks. `Tessera.ingest` is the
+normal pure-core entry point; platform adapters serialise byte slices and
+validated semantic out-of-band inputs, then process its returned outcome.
 
 ## Decoder mapping
 
@@ -1099,30 +1187,43 @@ process its returned outcome.
 | Printable UTF-8 | Decode scalar, segment grapheme, emit Print when complete. Invalid input emits Invalid_utf8 and a replacement scalar. |
 | C0: BEL, BS, HT, LF, VT, FF, CR | Emit diagnostic for BEL; map the others to Backspace, Horizontal_tab, Line_feed, or Carriage_return. |
 | ESC 7, 8, D, M, E, H, c | Save_cursor, Restore_cursor, Scroll_up/Scroll_down behaviour operations, line feed with carriage return, Set_tab, and Reset. |
-| CSI A/B/C/D/E/F/G/d/H/f | Emit cursor movement or position operation. Defaults are normalised from one-based terminal parameters to zero-based `Column.t`/`Row.t` values before update construction. |
+| CSI A/B/C/D/E/F/G/d/H/f | Emit cursor movement or position operation. Defaults are normalised from one-based terminal parameters to zero-based `Column.t`/`Row.t` values before update construction; E/F also reset the column. |
 | CSI J/K/X/P/@/L/M/S/T | Emit erase, edit, or scroll operation. |
-| CSI r, h, l, ?h, ?l | Emit margins or selected mode delta: origin, auto-wrap, cursor visibility, and alternate screen. |
+| CSI r, h, l, ?h, ?l | Emit margins or selected mode delta: origin, auto-wrap, cursor visibility, and alternate screen. DEC 1049 is distinct from 47/1047 and saves/restores the primary cursor. |
 | CSI m | Parse style groups including reset, rendition flags, indexed colours, and RGB colours; emit Set_style. |
 | OSC 0/2 | Emit Set_title after bounded payload collection. |
 | OSC/DCS/APC/PM other payloads | Recognise terminator, emit one bounded Unsupported_sequence observation, and return to Ground. |
 
 CSI parameters are accumulated as decimal integers with a checked maximum count and digit budget. A malformed or oversized sequence enters the appropriate bounded discard state and never mutates logical state.
 
+Framing and semantic dispatch are separate. The table-driven framer recognises
+C0/C1 controls, ESC, CSI, DCS, OSC, APC, PM/SOS, cancellation, and string
+termination across arbitrary byte boundaries; policy then decides whether a
+framed sequence has a supported meaning. Once a limit is reached or an
+unsupported string construct is identified, the decoder retains only its
+bounded diagnostic prefix and remains in `Discard_string` until the matching
+terminator. It never reinterprets discarded string payload as printable text,
+and the pure core exposes no user-installed or asynchronous parser callbacks.
+
 ## Module connections
 
     Observation / terminal-emulator path (used by Tessera and tessera-proxy)
 
-    application / PTY output bytes
-        │
-        ▼
-    Tessera.Decoder ── Effect.Item_sequence.t ──► Tessera.Session ──► Tessera.Renderer
-        │                                                                 │
-        ├─ Decode_state                                                    ├─ State / Grid
-        └─ Unicode                                                         ├─ Cell / Style / Mode
-                                                                          ├─ snapshot + Patch.t
-                                                                          │     │
-                                                                          │     └─► observer / Application UI
-                                                                          └─ renderer checkpoint
+    application / PTY output bytes ──► Bytes ────────────────┐
+                                                            ▼
+    validated TTY / browser resize ──► Out_of_band Resize ─► Tessera.Session
+                                                            │
+                                 Bytes only ────────────────┼─► Tessera.Decoder
+                                                            │        │
+                                                            │        ├─ Decode_state
+                                                            │        └─ Unicode
+                                                            ▼
+                                                     Tessera.Renderer
+                                                            │
+                                                            ├─ State / Grid
+                                                            ├─ Cell / Style / Mode
+                                                            ├─ snapshot + Patch.t ──► observer / Application UI
+                                                            └─ renderer checkpoint
 
     Decoder continuation + renderer checkpoint ──► optional Session checkpoint
 
@@ -1164,12 +1265,40 @@ use a controlled target and never a proxy relay.
 | --- | --- | --- |
 | 1. Skeleton and value model | Types, Limits, Policy, local error domains, Style, Mode, Cell, Update, Effect, Tessera facade stubs | Native, JSOO, and Melange compile. Expect tests cover checked UInt/ID/geometry constructors, policy validation, SGR printing, mode deltas, and stable printers; compile-fail fixtures prove unlike wrappers do not unify. |
 | 2. Unicode and grid | Unicode, Grid, State | Expect tests cover fragmented UTF-8, combining/wide cells, and page-copy behaviour. QCheck validates wide-cell pairing and coordinate bounds. |
-| 3. Renderer and patch algebra | Patch, Renderer, and Pp renderer output | Expect tests cover cursor rules, autowrap, margins, editing, scrolling, SGR, primary/alternate switching, title, no-reflow resize, patch compaction, and patch composition. Allocation test proves a one-cell edit copies at most one grid page. |
+| 3. Renderer and patch algebra | Patch, Renderer, and Pp renderer output | Expect tests cover cursor rules, autowrap, margins, editing, scrolling, SGR, primary/alternate switching, title, no-reflow resize, same-geometry full refresh, patch compaction, and patch composition. Allocation test proves a one-cell edit copies at most one grid page. |
 | 4. Decoder | Decode_state and Decoder | Expect tests cover every mapping table row. QCheck splits every fixture at random byte boundaries and requires identical items/continuation outcome. Native fuzzing proves malformed bytes remain bounded and do not raise. |
-| 5. Session and hardening | Session, session expect tests, Properties, Allocation | Composition tests compare decoder plus renderer with Session.feed_output and compare sequential patches with Patch.compose. Native allocation budgets cover printable runs, scrolling, alternate-screen switch, and snapshot creation. Cross-backend expect output is identical. |
+| 5. Session and hardening | Session, session expect tests, Properties, Allocation | Composition tests compare byte `Session.ingest` with Decoder.feed followed by Renderer.apply, and compare sequential patches with Patch.compose. Expect/property tests cover resize/byte interleavings, same-geometry resize records and full refresh, decoder finish, and checkpoint boundaries between ingresses. Native allocation budgets cover printable runs, scrolling, alternate-screen switch, resize refresh, and snapshot creation. Cross-backend expect output is identical. |
 | 6. Controlled output (second increment) | Description, Encoder, Target, and Repaint | Expect tests cover `Patch → Repaint.compile → Update.Batch → Encoder.encode`; the repaintable subset also completes `Patch → Repaint → Encoder → Decoder → Renderer` with equal normalised patch and successor projection. Mismatched lineage/generation and unsupported cells/effects fail before writing bytes; a full repaint recovers a reset controlled target. |
 
 ## Test commands and artefacts
+
+## Working practices
+
+The following conventions are part of this implementation, not incidental
+review preferences:
+
+- Keep a current implementation checklist in `terminal-todo.md`.  Update it
+  in the same commit as the milestone that changes its status.
+- Make commits at completed semantic milestones.  A commit includes its
+  expect coverage and the applicable portable-backend verification; it is not
+  merely an intermediate formatting checkpoint.
+- Write behavioural tests as `ppx_expect` fixtures.  Use public module
+  printers for domain values.  Test setup may use structural `Fmt` combinators
+  (not bespoke semantic printers), and result output uses `Fmt.result` rather
+  than unwrapping or asserting successful results.
+- Printers belong to the modules that own the public type.  Use `Fmt` for
+  module printers as well as expect fixtures when it improves the formatting,
+  provided its runtime dependency is declared and works on native, JSOO, and
+  Melange.  `Format` remains suitable for simple printers; never add a printer
+  dependency that prevents the Melange build.
+- Prefer pure recursive traversal and labelled recursive parameters over
+  mutable parser state or short-lived transition records.  A record remains
+  appropriate for durable state with cohesive invariants, such as decoder
+  continuations and renderer state.
+- Preserve the native, JSOO, and Melange targets throughout the work.  Run the
+  complete verification command, `make precommit`, before each milestone
+  commit.  It runs formatting, build, expect tests, both JavaScript targets,
+  format checking, and `git diff --check`.
 
 The test Dune file defines:
 
@@ -1187,7 +1316,8 @@ The following tests validate the architectural claims made by this increment. Th
 | Design claim | Test | Required assertion |
 | --- | --- | --- |
 | Parser and renderer are independent | Decoder fixtures never construct Renderer.state; renderer fixtures supply Update.batch values without calling Decoder. Dune dependency inspection keeps Decoder free of State/Grid/Renderer imports and Renderer free of Decoder/Decode_state imports. | Both component suites pass independently and the library dependency graph matches the module-connections diagram. |
-| Session composition is faithful | For every decoder fixture and random chunking, compare Session.feed_output with Decoder.feed followed by Renderer.apply performed by the test. | Final renderer state, ordered diagnostics, damage, and snapshot are equal. |
+| Session composition is faithful | For every decoder fixture and random chunking, compare `Session.ingest (Bytes slice)` with Decoder.feed followed by Renderer.apply performed by the test. | Final renderer state, ordered diagnostics, damage, and snapshot are equal. |
+| Resize ingress is explicit and ordered | Interleave byte ingresses with distinct, same-geometry, and coalesced resize ingresses; checkpoint only after each completed step. | Each accepted resize advances generation, emits one ordered `Resize` observation, and yields a full-damage full projection even when its size is unchanged. Replay and restore produce the same sequence and final state. |
 | Controlled output round trip is faithful | Start a renderer reference state and `Repaint.target` at the same canonical projection; compile only a generated repaintable patch, encode it, decode the bytes, then apply them to the reference renderer. | `Patch.normalize` and successor screen projection equal those of the source patch; source and emitted byte strings are never compared. |
 | Chunking does not change meaning | Feed each byte fixture whole, one byte at a time, and at hundreds of generated split points. | Equal updates, diagnostics, continuation-at-end, renderer state, damage, and snapshot. |
 | State is immutable | Retain every intermediate State/Session value during a scripted screen update; render snapshots from all retained values after later transitions. | Earlier snapshots and grid statistics are unchanged; only documented pages are newly allocated. |
@@ -1197,11 +1327,11 @@ The following tests validate the architectural claims made by this increment. Th
 | Rendering invariants always hold | Run the invariant checker after every random valid update batch and after every malformed decoder input. | Cursor and margins are in range; each Wide_continuation has a width-two lead immediately left; no lead lacks its continuation; every cell has a valid style and line id. |
 | Invalid protocol data cannot alter state | Pair valid baseline input with malformed, unknown, oversized, and unterminated sequences at every parser state. | State is unchanged by the rejected sequence, exactly one bounded observation is emitted where specified, and the following valid sequence is processed normally. |
 | Resource usage is bounded | Use maximum-sized CSI fields, unclosed OSC/DCS/APC/PM strings, invalid UTF-8 runs, and dimensions at/over policy limits. | Retained parser bytes, diagnostic count, snapshot cells, page count, and history-free state all remain within Policy.limits. |
-| Unicode policy is deterministic | Fixtures cover combining marks, variation selectors, emoji/ZWJ sequences, ambiguous-width characters, width-two glyphs at final column, invalid UTF-8, and chunk boundaries inside each encoding. | The same grapheme/cell snapshot is produced on native, JSOO, and Melange under the pinned Unicode version. |
-| Damage is precise and sufficient | Apply each operation to a state, then compare the new snapshot with the old snapshot cell by cell. | Every changed visible cell lies in damage; operations expected to be local do not request full damage; resize/reset request full damage. |
+| Unicode policy is deterministic | Fixtures cover combining marks, variation selectors, emoji/ZWJ sequences, ambiguous-width characters, width-two glyphs at final column, invalid UTF-8, and chunk boundaries inside each encoding. | The same grapheme/cell snapshot is produced on native, JSOO, and Melange from the recorded upstream Unicode submodule revisions. |
+| Damage is precise and sufficient | Apply each operation to a state, then compare the new snapshot with the old snapshot cell by cell. | Every changed visible cell lies in damage; operations expected to be local do not request full damage; resize/reset request full damage, including a same-geometry resize refresh. |
 | Diagnostics are deterministic and safe | Print each policy, decode, and render error through its stable payload printer under Err.Config.deterministic. | Expect output contains position/kind/payload only, has no stack/address/runtime-specific text, and is identical across portable targets. |
 | Pure-core portability is real | Build and run the same model, decoder, renderer, and session expect fixtures in native, JSOO, and Melange CI jobs. | No target-specific conditional code occurs under src/ and all fixture outputs are byte-for-byte equal. |
 | Allocation budget detects regressions | Run the fixed native release workloads after warm-up and major collection; capture a memtrace profile for the benchmark workload. | Per-update allocations remain below committed budgets, and the profile has no full-grid copy on local edits. |
-| Public API is intentional | Compile a small external-client test that imports only Tessera, not implementation modules. | The client can construct policy/session, feed slices, inspect snapshot/damage/diagnostics, and cannot access Grid, Decode_state, or mutable internals. |
+| Public API is intentional | Compile a small external-client test that imports only Tessera, not implementation modules. | The client can construct policy/session, serialise byte and resize ingress, finish a stream, inspect snapshot/damage/diagnostics, and cannot access Grid, Decode_state, or mutable internals. |
 
 Completion means all five stages pass on the three portable targets, decoder chunking is deterministic, renderer state remains immutable across older session values, and the allocation/structural-sharing budgets hold.
