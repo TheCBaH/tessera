@@ -1,10 +1,12 @@
 (library
  (name tessera)
  (public_name tessera)
+ (modes byte native melange)
  (wrapped false)
  (libraries
   tessera_foundation
   tessera_model
   tessera_renderer
-  tessera_decoder)
- (modules tessera))
+  tessera_decoder
+  tessera_terminfo)
+ (modules session tessera))

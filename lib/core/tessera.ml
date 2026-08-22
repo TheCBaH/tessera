@@ -38,6 +38,27 @@ module Cell = Model.Cell
 module Collection = Model.Collection
 module Update = Model.Update
 module Effect = Model.Effect
+module Description = Tessera_terminfo.Description
+module Terminfo = Tessera_terminfo.Terminfo
+module Encoder = Tessera_terminfo.Encoder
+module Repaint = Tessera_terminfo.Repaint
 module Patch = Tessera_renderer.Patch
 module Renderer = Tessera_renderer.Renderer
 module Decoder = Tessera_decoder.Decoder
+module Session = Session
+
+type outcome = Session.outcome
+type session = Session.t
+type byte_input = Session.byte_input
+type out_of_band = Session.out_of_band = Resize of Types.Size.t
+type input = Session.input = Bytes of byte_input | Out_of_band of out_of_band
+
+let ingest = Session.ingest
+let finish = Session.finish
+let initial = Session.initial
+let outcome_items = Session.items
+let outcome_patch = Session.patch
+let outcome_snapshot = Session.snapshot
+let pp_outcome = Session.pp_outcome
+let pp_session = Session.pp
+let session = Session.successor
