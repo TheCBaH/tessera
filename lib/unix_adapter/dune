@@ -1,0 +1,4 @@
+(library
+ (name tessera_unix)
+ (public_name tessera_unix)
+ (libraries tessera threads.posix unix))

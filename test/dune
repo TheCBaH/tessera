@@ -6,7 +6,7 @@
  (name tessera_runtime_fixture)
  (modes byte native melange)
  (modules runtime_fixture)
- (libraries tessera))
+ (libraries tessera tessera_js_adapter))
 
 (test
  (name runtime_fixture_test)

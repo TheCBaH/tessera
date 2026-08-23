@@ -1,0 +1,4 @@
+(library
+ (name tessera_lwt)
+ (public_name tessera_lwt)
+ (libraries tessera lwt lwt.unix))

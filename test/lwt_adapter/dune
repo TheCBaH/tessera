@@ -1,0 +1,22 @@
+(library
+ (name tessera_test_lwt_adapter)
+ (modules lwt_adapter_conformance)
+ (inline_tests
+  (modes byte native))
+ (libraries
+  fmt
+  tessera_test_support
+  tessera_test_conformance
+  tessera_foundation
+  tessera_model
+  tessera
+  tessera_lwt
+  lwt
+  lwt.unix)
+ (preprocess
+  (pps ppx_expect)))
+
+(alias
+ (name test-lwt-adapter)
+ (deps
+  (alias runtest)))

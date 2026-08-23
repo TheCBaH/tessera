@@ -1,0 +1,23 @@
+(library
+ (name tessera_test_async_adapter)
+ (modules async_adapter_conformance)
+ (inline_tests
+  (modes byte native))
+ (libraries
+  fmt
+  tessera_test_support
+  tessera_test_conformance
+  tessera_foundation
+  tessera_model
+  tessera
+  tessera_async
+  async
+  core
+  unix)
+ (preprocess
+  (pps ppx_expect)))
+
+(alias
+ (name test-async-adapter)
+ (deps
+  (alias runtest)))

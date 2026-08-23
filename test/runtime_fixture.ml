@@ -52,3 +52,20 @@ let run () =
     | Tessera.Patch.Set value -> size_equal size value);
   require (size_equal size (Tessera.Renderer.size (Tessera.outcome_snapshot resized)));
   Format.printf "tessera-runtime-fixture=ok@."
+
+(* Proves lib/js_adapter (the JSOO/Melange section 6 item) is genuinely portable, not just the core: this fixture
+   runs unmodified under native, js_of_ocoaml, and Melange via js_smoke.ml/melange_smoke.ml, exactly like [run]
+   above. *)
+let run_js_adapter () =
+  let policy = policy () and size = size () and lineage = Tessera.Lineage_id.of_uint (uint 1) in
+  let adapter = Tessera_js_adapter.Js_adapter.create ~lineage_id:lineage ~policy ~size in
+  let pushed = get (Tessera_js_adapter.Js_adapter.push adapter "A") in
+  ignore pushed;
+  let printed = get (Tessera_js_adapter.Js_adapter.finish adapter) in
+  let cursor = Tessera.Renderer.cursor (Tessera.outcome_snapshot printed) in
+  require (has_print_a (Tessera.outcome_items printed));
+  require (Tessera.UInt.equal (Tessera.Types.Column.to_uint cursor.position.column) (uint 1));
+  let resized = get (Tessera_js_adapter.Js_adapter.resize adapter ~columns:2 ~rows:1) in
+  require (has_only_resize size (Tessera.outcome_items resized));
+  require (size_equal size (Tessera.Renderer.size (Tessera.outcome_snapshot resized)));
+  Format.printf "tessera-js-adapter=ok@."

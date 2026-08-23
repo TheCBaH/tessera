@@ -21,6 +21,11 @@ plus the JSOO and Melange runtime-fixture targets in this directory.
 | `test/properties` | `@test-properties` | n/a (`properties` test executable) | QCheck properties: arbitrary decoder chunking, resize/byte ingress interleavings, same-size resize refresh, checkpoint replay/branching, patch algebra, renderer invariants, source/compiled Terminfo equivalence |
 | `test/fuzz` | `@test-fuzz` | n/a (`decoder_fuzz`/`terminfo_fuzz` Crowbar executables) | Native fuzzing under small policy limits: decoder never raises on arbitrary/chunked bytes or oversized malformed control strings; compiled/source Terminfo parsing never raises on arbitrary or structurally-plausible bytes |
 | `test/memtrace` | `@test-memtrace` | n/a (`benchmark` executable, build-only) | Native release benchmark workload; run with `MEMTRACE=<file>` to capture an allocation trace for manual inspection |
+| `test/conformance` | `@test-conformance` | `tessera_test_conformance` | Reusable adapter-conformance fixture: ordered ingress, short writes, backpressure, EOF, failures, observer-gap/authoritative-snapshot resynchronisation, and distinct/equal-size/coalesced resize events, replayed against a reference driver |
+| `test/unix_adapter` | `@test-unix-adapter` | `tessera_test_unix_adapter` | Replays `test/conformance`'s fixture against the real `lib/unix_adapter` (`tessera_unix`) reading from an OS pipe on a background thread; negative resize input and a real read failure |
+| `test/lwt_adapter` | `@test-lwt-adapter` | `tessera_test_lwt_adapter` | Replays `test/conformance`'s fixture against the real `lib/lwt_adapter` (`tessera_lwt`) reading from an OS pipe on the Lwt event loop; negative resize input and a real read failure |
+| `test/async_adapter` | `@test-async-adapter` | `tessera_test_async_adapter` | Replays `test/conformance`'s fixture against the real `lib/async_adapter` (`tessera_async`) reading from an OS pipe via `Async.Reader`; negative resize input and a real read failure |
+| `test/js_adapter` | `@test-js-adapter` | `tessera_test_js_adapter` | Replays `test/conformance`'s fixture against the real `lib/js_adapter` (`tessera.js_adapter`, the JSOO/Melange adapter) as direct synchronous calls; negative resize input |
 
 Shared, non-test-bearing support:
 
@@ -55,6 +60,74 @@ buildable) but only run manually via `dune exec test/memtrace/benchmark.exe`, op
 exercises the same operation categories -- printable run, local edit, scroll, resize refresh,
 alternate-screen switch, snapshot creation -- committed as allocation budgets in
 `test/renderer/allocation.ml` and `test/decoder/allocation.ml`.
+
+`test/conformance` depends only on the public `tessera` facade, like `test/integration` and
+`test/public`, so a scheduler adapter package (section 6: Unix, Lwt, Async, JSOO, Melange) can
+depend on it too. `test/conformance/scenario.ml` is the fixture itself: a scheduler-independent
+`host_event` vocabulary (writes, short writes, backpressure markers, resize, coalesced resize,
+failure, EOF) and the named scripted scenarios built from it. `test/conformance/reference.ml` is a
+minimal synchronous driver serialising those events into `Tessera.ingest`/`finish` calls, used both
+as this milestone's proof that the fixture is meaningful and as the oracle other adapters' drivers
+are compared against.
+
+`lib/unix_adapter` (package `tessera_unix`, library `Tessera_unix.Unix_adapter`) is the first such
+adapter: a blocking `Unix.file_descr` read loop plus a thread-safe `resize` entry point, serialised
+against the shared `Tessera.session` through an internal mutex that is held only around the brief
+session mutation, never around the blocking read itself, so a concurrent resize is never stuck
+behind a read that has not returned. `test/unix_adapter` depends on `tessera_test_conformance`
+directly and replays `Scenario.all` (ordered ingress, short writes, and distinct/equal-size/
+coalesced resize) against the real adapter reading from an `Unix.pipe` on a background `Thread`,
+checking its final rendered content against `Reference.run`'s. `Backpressure_pause`/`resume` carry
+nothing to deliver on a real descriptor and `Failure` isn't meaningfully reproducible on a plain
+pipe, so those two are instead covered directly: a negative resize count and a read on a closed
+descriptor are both asserted to come back as a typed error, never an exception.
+
+`lib/lwt_adapter` (package `tessera_lwt`, library `Tessera_lwt.Lwt_adapter`) is the second adapter:
+the same design as `tessera_unix` with Lwt's cooperative promises in place of OS threads, an
+`Lwt_unix.file_descr` read loop, and an `Lwt_mutex.t` (instead of `Mutex.t`) held only around the
+brief session mutation, never around the pending `Lwt_unix.read` itself, so a concurrent `resize`
+promise is never stuck behind a read that has not resolved. `test/lwt_adapter` mirrors
+`test/unix_adapter` exactly -- same scenarios, same two direct error cases -- but drives the reader
+and the writer/resize events as concurrent promises on one `Lwt_main.run` call over an
+`Lwt_unix.pipe` instead of a background thread. The read-failure fixture differs only in which libc
+call reports `EBADF` first: `Lwt_unix.read` calls `set_nonblock` on the descriptor before the read
+itself, so the closed-descriptor case is reported as `read-failed(set_nonblock(): ...)` rather than
+`read-failed(read(): ...)`.
+
+`lib/async_adapter` (package `tessera_async`, library `Tessera_async.Async_adapter`) is the third
+adapter: the same design again, this time with Jane Street's Async scheduler. An
+`Async.Throttle.Sequencer.t` (a one-job-at-a-time throttle, Async's equivalent of a mutex) replaces
+`Mutex.t`/`Lwt_mutex.t`, held only around the brief session mutation, never around the pending
+`Async.Reader.read` itself. The caller creates and owns the `Async.Reader.t` (and the `Async.Fd.t`/
+`Fd.Kind.t` it wraps); the adapter only reads from it, mirroring how the other two take a raw
+descriptor rather than owning one. Because `Async.Reader.read` can send an exception to the ambient
+monitor instead of returning it, `read_step` wraps the read in `Async.Monitor.try_with` so a read
+failure comes back as a typed `` `Read_failed of exn `` rather than crashing the scheduler.
+`test/async_adapter` mirrors `test/unix_adapter`/`test/lwt_adapter`, driving the reader loop and the
+writer/resize events inside one `Async.Thread_safe.block_on_async_exn` call over a plain
+`Unix.pipe` (wrapped in an `Async.Fd.t`/`Async.Reader.t` on the read end only; the write end stays a
+bare descriptor written with blocking `Unix.write_substring`, as in `test/unix_adapter`). The
+read-failure fixture checks only the error's shape (`` `Read_failed _ ``), not its rendered text,
+because that text embeds `Async.Reader.t`'s sexp -- including the raw OS file-descriptor number,
+which is not deterministic across runs.
+
+`lib/js_adapter` (library `tessera.js_adapter`, module `Tessera_js_adapter.Js_adapter`) covers the
+remaining two section 6 adapter items, JSOO and Melange, with a single implementation: unlike the
+three descriptor-reading adapters, a JS host has no OS descriptor to read and no scheduler-level
+concurrency to guard with a lock, so `push`/`resize`/`finish` are plain synchronous functions that
+return their outcome directly rather than delivering it through a callback -- the host's own event
+handler (a Node stream's `"data"`/`"close"`, a WebSocket's `onmessage`/`onclose`, an xterm.js data
+callback, ...) is the entire integration, with no `run` loop for this adapter to own. Because it has
+no backend-specific code at all (no js_of_ocaml `Js.t` bindings, no Melange `external`s), it builds
+in `byte` mode (consumed by a JSOO host exactly as `tessera_runtime_fixture` already is by
+`js_smoke.ml`) and in `melange` mode directly, satisfying both checklist items the way the portable
+core itself already does. `test/js_adapter` replays `test/conformance`'s fixture as direct
+synchronous calls (no pipe, no thread, no scheduler); `Backpressure_pause`/`resume` and `Failure`
+contribute no events, since a function-call interface has nothing to pause and no I/O layer that can
+fail beyond the same typed validation `resize` always has. `test/runtime_fixture.ml`'s
+`run_js_adapter` additionally exercises `push`/`resize`/`finish` end-to-end under `js_smoke.ml` and
+`melange_smoke.ml`, so the adapter's portability (not just the core's) is proved on all three
+targets, not merely compiled.
 
 ## Running one layer
 

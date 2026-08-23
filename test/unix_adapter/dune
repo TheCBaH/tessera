@@ -1,0 +1,22 @@
+(library
+ (name tessera_test_unix_adapter)
+ (modules unix_adapter_conformance)
+ (inline_tests
+  (modes byte native))
+ (libraries
+  fmt
+  tessera_test_support
+  tessera_test_conformance
+  tessera_foundation
+  tessera_model
+  tessera
+  tessera_unix
+  threads.posix
+  unix)
+ (preprocess
+  (pps ppx_expect)))
+
+(alias
+ (name test-unix-adapter)
+ (deps
+  (alias runtest)))

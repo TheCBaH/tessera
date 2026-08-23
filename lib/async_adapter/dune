@@ -1,0 +1,4 @@
+(library
+ (name tessera_async)
+ (public_name tessera_async)
+ (libraries tessera async))

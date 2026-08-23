@@ -1,0 +1,6 @@
+(library
+ (name tessera_js_adapter)
+ (public_name tessera.js_adapter)
+ (modes byte native melange)
+ (libraries tessera)
+ (modules js_adapter))

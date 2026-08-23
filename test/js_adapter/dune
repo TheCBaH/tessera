@@ -1,0 +1,20 @@
+(library
+ (name tessera_test_js_adapter)
+ (modules js_adapter_conformance)
+ (inline_tests
+  (modes byte native))
+ (libraries
+  fmt
+  tessera_test_support
+  tessera_test_conformance
+  tessera_foundation
+  tessera_model
+  tessera
+  tessera_js_adapter)
+ (preprocess
+  (pps ppx_expect)))
+
+(alias
+ (name test-js-adapter)
+ (deps
+  (alias runtest)))

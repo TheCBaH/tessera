@@ -1,0 +1,18 @@
+(library
+ (name tessera_test_conformance)
+ (modules scenario reference conformance)
+ (inline_tests
+  (modes byte native))
+ (libraries
+  fmt
+  tessera_test_support
+  tessera_foundation
+  tessera_model
+  tessera)
+ (preprocess
+  (pps ppx_expect)))
+
+(alias
+ (name test-conformance)
+ (deps
+  (alias runtest)))
