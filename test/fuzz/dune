@@ -1,0 +1,13 @@
+(tests
+ (names decoder_fuzz terminfo_fuzz)
+ (libraries
+  crowbar
+  tessera_test_support
+  tessera_foundation
+  tessera_decoder
+  tessera_terminfo))
+
+(alias
+ (name test-fuzz)
+ (deps
+  (alias runtest)))

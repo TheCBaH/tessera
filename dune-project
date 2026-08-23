@@ -13,4 +13,7 @@
   (ppx_expect :with-test)
   (js_of_ocaml :with-test)
   (melange :with-test)
+  (qcheck-core :with-test)
+  (crowbar :with-test)
+  (memtrace :with-test)
   (ocaml (>= 4.14))))

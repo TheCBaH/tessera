@@ -1,0 +1,13 @@
+(library
+ (name tessera_test_terminfo_corpus)
+ (modules corpus)
+ (inline_tests
+  (modes byte native))
+ (libraries fmt tessera_test_support tessera_terminfo)
+ (preprocess
+  (pps ppx_expect)))
+
+(alias
+ (name test-terminfo-corpus)
+ (deps
+  (alias runtest)))

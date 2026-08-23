@@ -1,0 +1,13 @@
+(executable
+ (name benchmark)
+ (modules benchmark)
+ (libraries
+  memtrace
+  tessera_test_support
+  tessera_foundation
+  tessera_model
+  tessera_renderer))
+
+(alias
+ (name test-memtrace)
+ (deps benchmark.exe))

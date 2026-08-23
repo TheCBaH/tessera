@@ -1,6 +1,6 @@
 (library
  (name tessera_test_decoder)
- (modules decoder_support c0_esc csi strings chunking)
+ (modules decoder_support c0_esc csi strings chunking allocation)
  (inline_tests
   (modes byte native))
  (libraries

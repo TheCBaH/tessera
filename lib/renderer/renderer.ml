@@ -72,7 +72,10 @@ let move size position = function
            ~upper:(UInt.to_int (Types.Size.rows size) - 1)
            (UInt.to_int (Types.Row.to_uint position.Types.row))
            (UInt.to_int count))
-  | Update.Position position -> position
+  | Update.Position position ->
+      clip size
+        (UInt.to_int (Types.Column.to_uint position.Types.column))
+        (UInt.to_int (Types.Row.to_uint position.Types.row))
   | Update.Previous_line count ->
       clip size 0 (subtract_until ~lower:0 (UInt.to_int (Types.Row.to_uint position.Types.row)) (UInt.to_int count))
   | Update.Row row ->
@@ -285,9 +288,14 @@ let restore_cursor state =
         | Some delta -> Tessera_model.Mode.apply_delta (State.modes state) delta
         | None -> assert false
       in
+      let position =
+        clip (State.size state)
+          (UInt.to_int (Types.Column.to_uint saved.position.Types.column))
+          (UInt.to_int (Types.Row.to_uint saved.position.Types.row))
+      in
       State.with_modes
         (State.with_active_buffer state
-           (State.with_cursor buffer { pending_wrap = false; position = saved.position; style = saved.style }))
+           (State.with_cursor buffer { pending_wrap = false; position; style = saved.style }))
         modes
 
 let scroll_up_between grid (cursor : State.cursor) ~top ~bottom =
@@ -392,7 +400,7 @@ let delete_chars grid (cursor : State.cursor) count =
   let columns = UInt.to_int (Types.Size.columns size) in
   let count = min (UInt.to_int count) (columns - first) in
   let rec loop result column =
-    if column = columns then result
+    if column >= columns then result
     else
       let cell = if column + count < columns then Grid.get grid (clip size (column + count) row) else blank cursor in
       loop (Grid.set result (clip size column row) cell) (column + 1)

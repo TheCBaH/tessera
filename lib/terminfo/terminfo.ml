@@ -73,9 +73,10 @@ let scan_fields source =
   loop 0 1 1 1 1 true false [] []
 
 let first_unescaped value separator =
+  let length = String.length value in
   let rec loop index =
-    if index = String.length value then None
-    else if value.[index] = '\\' then loop (index + 2)
+    if index = length then None
+    else if value.[index] = '\\' then loop (index + if index + 1 < length then 2 else 1)
     else if value.[index] = separator then Some index
     else loop (index + 1)
   in

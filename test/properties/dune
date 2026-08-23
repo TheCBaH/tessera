@@ -1,0 +1,24 @@
+(test
+ (name properties)
+ (modules
+  generators
+  chunking
+  ingress
+  patch_algebra
+  renderer_invariants
+  checkpoint
+  terminfo_equivalence
+  properties)
+ (libraries
+  qcheck-core
+  qcheck-core.runner
+  fmt
+  tessera_test_support
+  tessera_foundation
+  tessera_model
+  tessera))
+
+(alias
+ (name test-properties)
+ (deps
+  (alias runtest)))
