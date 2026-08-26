@@ -1,0 +1,29 @@
+(executable
+ (name winsize_probe)
+ (modules winsize_probe)
+ (libraries tessera_proxy_platform_linux tessera_proxy_platform unix)
+ (enabled_if
+  (= %{system} linux)))
+
+(test
+ (name platform_linux_test)
+ (modules platform_linux_test)
+ (libraries
+  fmt
+  tessera_test_support
+  tessera_foundation
+  tessera
+  tessera_unix
+  tessera_proxy_platform
+  tessera_proxy_platform_linux
+  tessera_proxy_linux
+  unix)
+ (action
+  (run %{test} %{exe:winsize_probe.exe}))
+ (enabled_if
+  (= %{system} linux)))
+
+(alias
+ (name test-proxy-platform-linux)
+ (deps
+  (alias runtest)))

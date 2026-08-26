@@ -1,0 +1,29 @@
+(library
+ (name tessera_test_proxy_linux_fake_platform)
+ (modules fake_platform)
+ (libraries tessera_proxy_platform unix))
+
+(library
+ (name tessera_test_proxy_linux)
+ (modules resize_loop_test session_test)
+ (inline_tests
+  (modes byte native))
+ (libraries
+  fmt
+  tessera_test_support
+  tessera_foundation
+  tessera_model
+  tessera
+  tessera_unix
+  tessera_proxy_platform
+  tessera_proxy_observer
+  tessera_proxy_linux
+  tessera_test_proxy_linux_fake_platform
+  unix)
+ (preprocess
+  (pps ppx_expect)))
+
+(alias
+ (name test-proxy-linux)
+ (deps
+  (alias runtest)))

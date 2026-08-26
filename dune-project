@@ -50,3 +50,36 @@
   tessera
   async
   (ocaml (>= 4.14))))
+
+(package
+ (name tessera_proxy_platform)
+ (synopsis "Linux PTY/signal platform boundary for the Tessera proxy")
+ (description
+  "A module type S auditing openpty/ioctl/signalfd access, plus its real Linux binding, so the resize protocol and relay loop can be tested against a fake implementation.")
+ (license MIT)
+ (depends
+  tessera
+  (ocaml (>= 4.14))))
+
+(package
+ (name tessera_proxy_observer)
+ (synopsis "Bounded observer delivery for the Tessera proxy")
+ (description
+  "In-process traffic/resize/effect record log with bounded, non-blocking publish, gap reporting, and authoritative snapshot resynchronisation.")
+ (license MIT)
+ (depends
+  tessera
+  (ocaml (>= 4.14))))
+
+(package
+ (name tessera_proxy_linux)
+ (synopsis "Linux terminal proxy composition root for Tessera")
+ (description
+  "Wires Tessera_unix.Unix_adapter, Tessera_proxy_platform, and Tessera_proxy_observer into a proxy session and a minimal tessera-proxy executable.")
+ (license MIT)
+ (depends
+  tessera
+  tessera_unix
+  tessera_proxy_platform
+  tessera_proxy_observer
+  (ocaml (>= 4.14))))

@@ -1,0 +1,5 @@
+(library
+ (name tessera_proxy_observer)
+ (public_name tessera_proxy_observer)
+ (libraries tessera_foundation tessera_model tessera)
+ (modules record ring))

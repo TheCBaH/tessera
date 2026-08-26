@@ -21,6 +21,7 @@ module Row : sig
 end
 
 type coord = { column : Column.t; row : Row.t }
+type direction = Application_to_terminal | Terminal_to_application
 type rect
 type screen = Alternate | Primary
 type slice
@@ -37,6 +38,7 @@ end
 
 val coord : column:Column.t -> row:Row.t -> coord
 val pp_coord : Format.formatter -> coord -> unit
+val pp_direction : Format.formatter -> direction -> unit
 val pp_error : Format.formatter -> error -> unit
 val pp_rect : Format.formatter -> rect -> unit
 val pp_screen : Format.formatter -> screen -> unit

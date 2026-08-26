@@ -1,5 +1,5 @@
 (* Named byte corpus for malformed/framing decoder inputs. Additive breadth alongside the
-   component suites in test/decoder (see split.md item 4): every case here is decoded through
+   component suites in test/decoder: every case here is decoded through
    the same [feed]/[finish] path and its final diagnostic/update projection is printed, so this
    is the retained-corpus seam the later fuzz milestone will extend. *)
 module Model = Tessera_model

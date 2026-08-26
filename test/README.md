@@ -46,7 +46,7 @@ generators (mirroring the pattern `test/core` already uses), since those are the
 its QCheck generators construct. The one exception: `test/encoder` cannot be Dune-isolated from `tessera_renderer`,
 because `Encoder` and `Repaint` are both modules of the single `tessera_terminfo` library and
 `Repaint` already depends on `tessera_renderer`; encoder tests simply avoid constructing
-`Renderer`/`Patch` values as a convention. See `split.md` for the full table and rationale.
+`Renderer`/`Patch` values as a convention.
 
 `test/fuzz` is a `(tests ...)` stanza (plain Crowbar executables, not `ppx_expect`), and depends
 directly on `tessera_decoder`/`tessera_terminfo` like their component suites. It asserts crash-

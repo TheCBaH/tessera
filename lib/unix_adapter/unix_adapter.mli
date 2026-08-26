@@ -34,6 +34,15 @@ val read_step : t -> Unix.file_descr -> bytes -> (read_result, error) Err.t
     reused by the caller across calls; only the bytes actually read are drawn from it before the next call may overwrite
     it. *)
 
+val ingest_slice : t -> Tessera_foundation.Types.slice -> (Tessera.outcome, error) Err.t
+(** Ingests bytes the caller already read by some other means, through the same locked path as {!read_step} -- for a
+    caller that must relay the raw bytes elsewhere (e.g. verbatim to a real terminal) independently of decoding, and so
+    cannot let this adapter own the {!Unix.read} call itself. *)
+
+val finish : t -> (Tessera.outcome, error) Err.t
+(** {!Tessera.finish} through the same locked path as {!run}'s EOF handling -- for a caller doing its own raw reads and
+    calling {!ingest_slice} directly instead of {!read_step}. *)
+
 val run :
   t ->
   Unix.file_descr ->

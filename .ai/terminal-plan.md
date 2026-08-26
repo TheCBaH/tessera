@@ -3,8 +3,7 @@
 ## Established implementation practices
 
 The active implementation follows the detailed conventions in
-`terminal-impl.md` and tracks its remaining milestones in
-`terminal-todo.md`.  Tests are `ppx_expect` fixtures using module-owned
+`terminal-impl.md`.  Tests are `ppx_expect` fixtures using module-owned
 printers and `Fmt.result`; core printers may use `Fmt` when its dependency is
 portable to native, JSOO, and Melange.  Parser and renderer transitions are
 immutable recursive functions, with labelled arguments preferred to

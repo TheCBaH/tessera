@@ -1277,8 +1277,6 @@ use a controlled target and never a proxy relay.
 The following conventions are part of this implementation, not incidental
 review preferences:
 
-- Keep a current implementation checklist in `terminal-todo.md`.  Update it
-  in the same commit as the milestone that changes its status.
 - Make commits at completed semantic milestones.  A commit includes its
   expect coverage and the applicable portable-backend verification; it is not
   merely an intermediate formatting checkpoint.

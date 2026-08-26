@@ -1,0 +1,19 @@
+(library
+ (name tessera_test_proxy_observer)
+ (modules ring_test)
+ (inline_tests
+  (modes byte native))
+ (libraries
+  fmt
+  tessera_test_support
+  tessera_foundation
+  tessera_model
+  tessera
+  tessera_proxy_observer)
+ (preprocess
+  (pps ppx_expect)))
+
+(alias
+ (name test-proxy-observer)
+ (deps
+  (alias runtest)))

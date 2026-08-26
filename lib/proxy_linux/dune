@@ -1,0 +1,28 @@
+(library
+ (name tessera_proxy_linux)
+ (public_name tessera_proxy_linux)
+ (libraries
+  tessera
+  tessera_foundation
+  tessera_unix
+  tessera_proxy_platform
+  tessera_proxy_observer
+  unix)
+ (modules resize_loop session))
+
+; The composition root executable (proxy.md implementation order step 5). Kept as its own stanza,
+; gated to Linux, since it is the only unit in this package that names the real
+; Tessera_proxy_platform_linux binding rather than staying generic over Platform.S.
+
+(executable
+ (name proxy)
+ (package tessera_proxy_linux)
+ (public_name tessera-proxy)
+ (modules proxy)
+ (libraries
+  tessera_foundation
+  tessera_proxy_linux
+  tessera_proxy_platform_linux
+  unix)
+ (enabled_if
+  (= %{system} linux)))

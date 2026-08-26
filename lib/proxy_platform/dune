@@ -1,0 +1,23 @@
+(library
+ (name tessera_proxy_platform)
+ (public_name tessera_proxy_platform)
+ (libraries tessera_foundation unix)
+ (modules winsize platform)
+ (modules_without_implementation platform))
+
+; The real Linux binding (proxy.md implementation order step 4): the only compilation unit in this
+; package with C stubs, and the only one gated to a single platform. Kept as a separate dune library,
+; still published under the tessera_proxy_platform opam package, so winsize/platform stay portable and
+; buildable (and testable against a fake) on every platform even though this unit is not.
+
+(library
+ (name tessera_proxy_platform_linux)
+ (public_name tessera_proxy_platform.linux)
+ (libraries tessera_foundation tessera_proxy_platform unix)
+ (modules platform_linux)
+ (enabled_if
+  (= %{system} linux))
+ (foreign_stubs
+  (language c)
+  (names platform_stubs))
+ (c_library_flags (-lutil)))

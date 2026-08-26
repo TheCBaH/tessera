@@ -32,6 +32,7 @@ module Row = struct
 end
 
 type coord = { column : Column.t; row : Row.t }
+type direction = Application_to_terminal | Terminal_to_application
 type rect = { bottom : Row.t; left : Column.t; right : Column.t; top : Row.t }
 type screen = Alternate | Primary
 type slice = { bytes : bytes; len : UInt.t; off : UInt.t }
@@ -55,6 +56,10 @@ end
 
 let coord ~column ~row = { column; row }
 let pp_coord ppf { column; row } = Format.fprintf ppf "(%a,%a)" Column.pp column Row.pp row
+
+let pp_direction ppf = function
+  | Application_to_terminal -> Format.pp_print_string ppf "application-to-terminal"
+  | Terminal_to_application -> Format.pp_print_string ppf "terminal-to-application"
 
 let pp_screen ppf = function
   | Alternate -> Format.pp_print_string ppf "alternate"
