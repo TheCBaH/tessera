@@ -1,0 +1,18 @@
+(test
+ (name tmux_test)
+ (modules tmux_test)
+ (libraries unix)
+ (deps fixture.sh %{exe:../../lib/proxy_linux/proxy.exe})
+ (action
+  (setenv
+   TESSERA_PROXY
+   %{exe:../../lib/proxy_linux/proxy.exe}
+   (setenv
+    TESSERA_PROXY_TMUX_FIXTURE
+    %{dep:fixture.sh}
+    (run %{test})))))
+
+(alias
+ (name test-proxy-tmux)
+ (deps
+  (alias runtest)))

@@ -128,3 +128,22 @@ let%expect_test "terminal-to-application bytes are relayed verbatim to the child
     relayed 15 byte(s)
     the child received it verbatim: true
     first record: traffic(#0, terminal-to-application, 15 byte(s)) |}]
+
+let%expect_test "wakeup readiness stays ahead of both application output and terminal input" =
+  let terminal_in_read, terminal_in_write = Unix.pipe () in
+  let session =
+    start ~policy:(or_fail (policy ())) ~terminal_in:terminal_in_read ~terminal_out:(snd (Unix.pipe ())) ()
+  in
+  let pty = Session.Loop.pty (Session.loop session) in
+  Fake_platform.trigger_host_resize pty;
+  Fake_platform.push_child_output pty "application";
+  ignore (Unix.write terminal_in_write (Bytes.of_string "terminal") 0 8);
+  let pp_ready ppf = function
+    | Session.Wakeup -> Format.pp_print_string ppf "wakeup"
+    | Session.Master -> Format.pp_print_string ppf "master"
+    | Session.Terminal_input -> Format.pp_print_string ppf "terminal-input"
+  in
+  Format.printf "[%a]@."
+    (Format.pp_print_list ~pp_sep:(fun ppf () -> Format.pp_print_string ppf "; ") pp_ready)
+    (Session.select session ~timeout:0.0);
+  [%expect {| [wakeup; master; terminal-input] |}]

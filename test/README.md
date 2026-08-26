@@ -17,6 +17,8 @@ plus the JSOO and Melange runtime-fixture targets in this directory.
 | `test/repaint` | `@test-repaint` | `tessera_test_repaint` | Repaint target/compile and rejection fixtures |
 | `test/core` | `@test-core` | `tessera_test_core` | `Session.ingest`/`finish`, resize ordering/observation, retained sessions |
 | `test/integration` | `@test-integration` | `tessera_test_integration` | Full `Patch → Repaint.compile → Encoder.encode → Decoder.feed → Renderer.apply` round trip |
+| `test/proxy_linux` | `@test-proxy-linux` | `tessera_test_proxy_linux` | Deterministic fake-platform proxy contract: byte-exact bidirectional relay, typed ingest failure ordering, observer records, resize and direct-renderer snapshot equivalence |
+| `test/proxy_tmux` | `@test-proxy-tmux` | n/a | Detached fixed-size tmux compatibility cases for dialog, whiptail, custom VT redraw/form and resize fixtures; reports installed emulator versions |
 | `test/public` | `@test-public` | `tessera_test_public` | Public `Tessera` facade smoke/compatibility examples only |
 | `test/properties` | `@test-properties` | n/a (`properties` test executable) | QCheck properties: arbitrary decoder chunking, resize/byte ingress interleavings, same-size resize refresh, checkpoint replay/branching, patch algebra, renderer invariants, source/compiled Terminfo equivalence |
 | `test/fuzz` | `@test-fuzz` | n/a (`decoder_fuzz`/`terminfo_fuzz` Crowbar executables) | Native fuzzing under small policy limits: decoder never raises on arbitrary/chunked bytes or oversized malformed control strings; compiled/source Terminfo parsing never raises on arbitrary or structurally-plausible bytes |

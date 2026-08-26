@@ -8,6 +8,9 @@ RUN set -eux;\
   git\
   make\
   ripgrep\
+  tmux\
+  dialog\
+  whiptail\
   wget\
   xz-utils\
 ;\
