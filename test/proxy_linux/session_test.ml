@@ -34,13 +34,14 @@ let tiny_slice_policy () =
   in
   Ok (Foundation.Policy.make ~limits ~profile:Foundation.Policy.Xterm_256color_core)
 
-let read_available fd ~timeout ~len =
-  match Unix.select [ fd ] [] [] timeout with
-  | [], _, _ -> None
-  | _ ->
-      let buffer = Bytes.create len in
-      let read = Unix.read fd buffer 0 len in
-      if read = 0 then None else Some (Bytes.sub_string buffer 0 read)
+let rec read_available fd ~len =
+  Unix.set_nonblock fd;
+  let buffer = Bytes.create len in
+  match Unix.read fd buffer 0 len with
+  | 0 -> None
+  | read -> Some (Bytes.sub_string buffer 0 read)
+  | exception Unix.Unix_error ((Unix.EAGAIN | Unix.EWOULDBLOCK), _, _) -> None
+  | exception Unix.Unix_error (Unix.EINTR, _, _) -> read_available fd ~len
 
 let start ~policy ~terminal_in ~terminal_out () =
   Fake_platform.set_physical_winsize (or_fail (winsize 4 2));
@@ -73,7 +74,7 @@ let%expect_test "application-to-terminal bytes are relayed verbatim even when a 
       Format.printf "ingest failed as scripted: %a@." Tessera_unix.Unix_adapter.pp_error (Err.Error.kind error)
   | Session.Application_bytes _ -> Format.printf "unexpectedly succeeded@."
   | _ -> Format.printf "unexpected event@.");
-  (match read_available terminal_out_read ~timeout:2.0 ~len:(String.length payload) with
+  (match read_available terminal_out_read ~len:(String.length payload) with
   | Some relayed -> Format.printf "relayed verbatim despite ingest failure: %b@." (String.equal relayed payload)
   | None -> Format.printf "nothing was relayed@.");
   print_first_record ring start_cursor;
@@ -95,7 +96,7 @@ let%expect_test "application-to-terminal bytes that decode successfully are rela
   | Session.Application_bytes outcome ->
       Format.printf "ingested: %a@." Tessera_model.Effect.Item_sequence.pp (Tessera.outcome_items outcome)
   | _ -> Format.printf "unexpected event@.");
-  (match read_available terminal_out_read ~timeout:2.0 ~len:2 with
+  (match read_available terminal_out_read ~len:2 with
   | Some relayed -> Format.printf "relayed verbatim: %s@." relayed
   | None -> Format.printf "nothing was relayed@.");
   print_first_record ring start_cursor;
@@ -118,7 +119,7 @@ let%expect_test "terminal-to-application bytes are relayed verbatim to the child
   (match Session.on_terminal_readable session with
   | Session.Terminal_input_relayed count -> Format.printf "relayed %d byte(s)@." count
   | _ -> Format.printf "unexpected event@.");
-  (match Fake_platform.read_sent_to_child pty ~timeout:2.0 ~len:(String.length payload) with
+  (match Fake_platform.read_sent_to_child pty ~len:(String.length payload) with
   | Some received -> Format.printf "the child received it verbatim: %b@." (String.equal received payload)
   | None -> Format.printf "the child received nothing@.");
   print_first_record ring start_cursor;

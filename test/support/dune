@@ -1,4 +1,13 @@
 (library
  (name tessera_test_support)
- (modules support)
+ (modules support test_random)
  (libraries fmt tessera_foundation tessera_model))
+
+(library
+ (name tessera_test_support_test_random)
+ (modules test_random_test)
+ (inline_tests
+  (modes byte native))
+ (libraries tessera_test_support)
+ (preprocess
+  (pps ppx_expect)))

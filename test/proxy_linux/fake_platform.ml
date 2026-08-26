@@ -63,20 +63,27 @@ let resize_wakeup_fd pty = pty.wakeup_read
 
 (* Test-only controls, not part of Platform.S. *)
 
-let push_child_output pty text =
-  let bytes = Bytes.of_string text in
-  let written = Unix.write pty.test_end bytes 0 (Bytes.length bytes) in
-  assert (written = Bytes.length bytes)
+let rec write_all fd bytes offset =
+  if offset < Bytes.length bytes then
+    match Unix.write fd bytes offset (Bytes.length bytes - offset) with
+    | written -> write_all fd bytes (offset + written)
+    | exception Unix.Unix_error (Unix.EINTR, _, _) -> write_all fd bytes offset
+
+let push_child_bytes pty bytes = write_all pty.test_end bytes 0
+let push_child_output pty text = push_child_bytes pty (Bytes.of_string text)
 
 (* Reads whatever was written to [master_fd pty] (e.g. by a proxy relaying terminal input to the
    child), waiting up to [timeout] seconds. [None] means nothing arrived in time. *)
-let read_sent_to_child pty ~timeout ~len =
-  match Unix.select [ pty.test_end ] [] [] timeout with
-  | [], _, _ -> None
-  | _ ->
-      let buffer = Bytes.create len in
-      let read = Unix.read pty.test_end buffer 0 len in
-      if read = 0 then None else Some (Bytes.sub_string buffer 0 read)
+let rec read_sent_to_child pty ~len =
+  Unix.set_nonblock pty.test_end;
+  let buffer = Bytes.create len in
+  match Unix.read pty.test_end buffer 0 len with
+  | 0 -> None
+  | read -> Some (Bytes.sub_string buffer 0 read)
+  | exception Unix.Unix_error ((Unix.EAGAIN | Unix.EWOULDBLOCK), _, _) -> None
+  | exception Unix.Unix_error (Unix.EINTR, _, _) -> read_sent_to_child pty ~len
+
+let close_child_output pty = Unix.shutdown pty.test_end Unix.SHUTDOWN_SEND
 
 let trigger_host_resize pty =
   let written = Unix.write pty.wakeup_write (Bytes.make 1 '\001') 0 1 in
