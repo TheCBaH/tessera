@@ -6,6 +6,10 @@ let initial_sequence = 0
 let next_sequence sequence = sequence + 1
 let sequence_to_int sequence = sequence
 
+let sequence_of_int n =
+  if n < 0 then invalid_arg "Record.sequence_of_int: n must be non-negative";
+  n
+
 module Pixels = struct
   type pixel_unit = Device_pixels | Css_pixels | Unspecified
   type t = { width : int; height : int; unit : pixel_unit }

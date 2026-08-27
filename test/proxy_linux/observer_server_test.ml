@@ -52,7 +52,7 @@ let pp_frames ppf frames =
   Format.fprintf ppf "[%a]" (Format.pp_print_list ~pp_sep:(fun ppf () -> Format.fprintf ppf "; ") Frame.pp) frames
 
 let make_server ?(max_pending_bytes = 1_048_576) () =
-  let ring = Ring.create ~capacity:64 in
+  let ring = Ring.create ~capacity:64 ~start_position:Record.initial_sequence in
   let policy = or_fail (policy ()) in
   let socket_path = fresh_socket_path () in
   let server =
@@ -171,7 +171,8 @@ let%expect_test "a stalled, non-reading observer client never delays or corrupts
   let session =
     or_fail_err Session.Loop.pp_error
       (Session.create ~argv:[| "ignored" |] ~lineage_id ~policy ~terminal_in:terminal_in_read
-         ~terminal_out:terminal_out_write ~observer_capacity:64 ~read_buffer_bytes:65536)
+         ~terminal_out:terminal_out_write ~observer_capacity:64 ~observer_start_position:Record.initial_sequence
+         ~read_buffer_bytes:65536)
   in
   let server, _ring, socket_path = make_server ~max_pending_bytes:64 () in
   let _stalled_client = connect server socket_path in

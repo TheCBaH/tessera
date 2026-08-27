@@ -80,6 +80,7 @@ type t = {
 
 let capabilities value = value.capabilities
 let extensions value = value.extensions
+let identity value = match value.names with [] -> None | first :: _ -> Some first
 let names value = value.names
 let uses value = value.uses
 

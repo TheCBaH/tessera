@@ -5,8 +5,11 @@
 
 type t
 
-val create : capacity:int -> t
-(** [capacity] must be positive. *)
+val create : capacity:int -> start_position:Record.sequence -> t
+(** [capacity] must be positive. [start_position] is the sequence the first {!publish}ed record will receive: pass
+    {!Record.initial_sequence} for a fresh ring, or a proxy checkpoint's persisted observer position when resuming so an
+    already-holding client's old cursor lines up exactly with this ring's start -- it reads back "caught up", never a
+    spurious {!Gap} -- instead of numbering restarting at zero underneath it. *)
 
 val next_sequence : t -> Record.sequence
 (** Mints the next sequence for this ring, shared across all three {!Record.t} kinds -- call once per record about to be

@@ -11,7 +11,7 @@ let or_fail = function Ok value -> value | Error message -> failwith message
 let publish ring make = Ring.publish ring (make (Ring.next_sequence ring))
 
 let%expect_test "publishing past capacity overwrites the oldest record; read reports the exact drop count" =
-  let ring = Ring.create ~capacity:4 in
+  let ring = Ring.create ~capacity:4 ~start_position:Record.initial_sequence in
   let start = Ring.cursor ring in
   for i = 1 to 10 do
     publish ring (fun sequence ->
@@ -83,9 +83,9 @@ let%expect_test
   let pending, final_outcome = or_fail (scripted_records ()) in
   let total = List.length pending in
   Format.printf "records total: %d@." total;
-  let full = Ring.create ~capacity:(total + 1) in
+  let full = Ring.create ~capacity:(total + 1) ~start_position:Record.initial_sequence in
   let full_start = Ring.cursor full in
-  let gappy = Ring.create ~capacity:3 in
+  let gappy = Ring.create ~capacity:3 ~start_position:Record.initial_sequence in
   let gappy_start = Ring.cursor gappy in
   List.iter (publish full) pending;
   List.iter (publish gappy) pending;

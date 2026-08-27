@@ -1,8 +1,8 @@
 type t = { capacity : int; buffer : Record.t option array; mutable total : int; mutable next : Record.sequence }
 
-let create ~capacity =
+let create ~capacity ~start_position =
   if capacity <= 0 then invalid_arg "Ring.create: capacity must be positive";
-  { capacity; buffer = Array.make capacity None; total = 0; next = Record.initial_sequence }
+  { capacity; buffer = Array.make capacity None; total = Record.sequence_to_int start_position; next = start_position }
 
 let next_sequence t =
   let sequence = t.next in

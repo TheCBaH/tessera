@@ -145,7 +145,8 @@ let () =
     (fun () ->
       match
         Session.create ~argv ~lineage_id ~policy ~terminal_in:Unix.stdin ~terminal_out:Unix.stdout
-          ~observer_capacity:4096 ~read_buffer_bytes:65536
+          ~observer_capacity:4096 ~observer_start_position:Tessera_proxy_observer.Record.initial_sequence
+          ~read_buffer_bytes:65536
       with
       | Error error -> die (Format.asprintf "%a" Session.Loop.pp_error error)
       | Ok session ->

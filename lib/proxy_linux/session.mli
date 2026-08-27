@@ -16,11 +16,13 @@ module Make (Platform : Tessera_proxy_platform.Platform.S) : sig
     terminal_in:Unix.file_descr ->
     terminal_out:Unix.file_descr ->
     observer_capacity:int ->
+    observer_start_position:Tessera_proxy_observer.Record.sequence ->
     read_buffer_bytes:int ->
     (t, Loop.error) result
   (** [terminal_in]/[terminal_out] are the real terminal's descriptors: application-to-terminal bytes are written
       verbatim to [terminal_out]; terminal-to-application bytes are read from [terminal_in] and relayed verbatim to the
-      child, never ingested. *)
+      child, never ingested. [observer_start_position] is {!Tessera_proxy_observer.Record.initial_sequence} for a fresh
+      session, or a {!Checkpoint.restored}'s [observer_position] when resuming from one -- see {!Checkpoint}. *)
 
   val loop : t -> Loop.t
   val ring : t -> Tessera_proxy_observer.Ring.t

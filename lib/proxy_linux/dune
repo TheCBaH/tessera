@@ -9,7 +9,7 @@
   tessera_proxy_observer
   tessera_proxy_protocol
   unix)
- (modules resize_loop session observer_server))
+ (modules resize_loop session observer_server checkpoint))
 
 ; The composition root executable (proxy.md implementation order step 5). Kept as its own stanza,
 ; gated to Linux, since it is the only unit in this package that names the real
@@ -23,6 +23,7 @@
  (libraries
   tessera_foundation
   tessera_proxy_linux
+  tessera_proxy_observer
   tessera_proxy_platform_linux
   unix)
  (enabled_if

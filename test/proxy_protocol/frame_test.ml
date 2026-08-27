@@ -102,7 +102,7 @@ let%expect_test "an unknown frame tag is a typed, non-raising error" =
   [%expect {| unknown frame kind 200 |}]
 
 let%expect_test "publishing observer records converts through Frame.of_record unchanged" =
-  let ring = Observer.Ring.create ~capacity:4 in
+  let ring = Observer.Ring.create ~capacity:4 ~start_position:Observer.Record.initial_sequence in
   let sequence = Observer.Ring.next_sequence ring in
   let record =
     Observer.Record.traffic ~sequence ~direction:Foundation.Types.Terminal_to_application ~bytes:(Bytes.of_string "x")

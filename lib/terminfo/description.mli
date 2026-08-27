@@ -30,6 +30,14 @@ end
 val capabilities : t -> Capability_map.t
 val capability_of_name : string -> capability option
 val extensions : t -> (string * extension_value) list
+
+val identity : t -> string option
+(** {!names}'s primary (first) name, e.g. ["xterm-256color"] for the bundled fallback -- terminfo's own convention is
+    that the first name is the canonical one. [None] for a description built without source provenance ({!make} or
+    {!make_with_uses}), since {!names} is then empty. This is a human/debugging label for a persisted checkpoint
+    envelope, not a second source of compatibility truth: the declared behavioural family
+    ({!Tessera_foundation.Policy.profile}) is what a restored session's own policy already carries and validates. *)
+
 val make : capabilities:Capability_map.t -> t
 
 val make_with_source :
