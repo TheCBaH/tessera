@@ -77,6 +77,16 @@ let records_since ring cursor =
   in
   loop cursor []
 
+let record_text record = Format.asprintf "%a" pp_record record
+
+let assert_observer_log ~expected ~actual =
+  let expected = List.map record_text expected in
+  let actual = List.map record_text actual in
+  if not (List.equal String.equal expected actual) then
+    failwith
+      (Printf.sprintf "observer log mismatch\nexpected:\n%s\nactual:\n%s" (String.concat "\n" expected)
+         (String.concat "\n" actual))
+
 let rec read_available fd ~len =
   Unix.set_nonblock fd;
   let buffer = Bytes.create len in
@@ -86,20 +96,22 @@ let rec read_available fd ~len =
   | exception Unix.Unix_error ((Unix.EAGAIN | Unix.EWOULDBLOCK), _, _) -> None
   | exception Unix.Unix_error (Unix.EINTR, _, _) -> read_available fd ~len
 
-let start ~policy ~terminal_in ~terminal_out () =
+let start ?(observer_capacity = 4096) ~policy ~terminal_in ~terminal_out () =
   Fake_platform.set_physical_winsize (or_fail (winsize 4 2));
   let lineage_id = Foundation.Lineage_id.of_uint (or_fail (uint 1)) in
   match
     Session.create ~argv:[| "ignored-by-fake-platform" |] ~lineage_id ~policy ~terminal_in ~terminal_out
-      ~observer_capacity:64 ~read_buffer_bytes:256
+      ~observer_capacity ~read_buffer_bytes:256
   with
   | Ok session -> session
   | Error error -> failwith (Format.asprintf "%a" Session.Loop.pp_error error)
 
 type event = Application_bytes of bytes | Terminal_input of bytes | Resize of int * int | Wakeup | Application_eof
 
+let direct_ingest_result direct bytes = Tessera.ingest !direct (Tessera.Bytes (or_fail (slice (Bytes.to_string bytes))))
+
 let direct_ingest direct bytes =
-  match Tessera.ingest !direct (Tessera.Bytes (or_fail (slice (Bytes.to_string bytes)))) with
+  match direct_ingest_result direct bytes with
   | Ok outcome ->
       direct := Tessera.session outcome;
       outcome
@@ -129,7 +141,30 @@ let drive events =
     ref (Tessera.initial ~lineage_id:(Foundation.Lineage_id.of_uint (or_fail (uint 1))) ~policy ~size:(size 4 2))
   in
   let ring = Session.ring session in
-  let cursor = ref (Ring.cursor ring) in
+  let start_cursor = Ring.cursor ring in
+  let expected_records = ref [] in
+  let next_sequence = ref Record.initial_sequence in
+  let expect_record make =
+    expected_records := !expected_records @ [ make !next_sequence ];
+    next_sequence := Record.next_sequence !next_sequence
+  in
+  let expect_effects outcome =
+    Tessera.Effect.Item_sequence.fold_left
+      (fun () item ->
+        match item with
+        | Tessera.Effect.Observation item -> expect_record (fun sequence -> Record.effect_observation ~sequence ~item)
+        | Tessera.Effect.Update _ -> ())
+      () (Tessera.outcome_items outcome)
+  in
+  let expect_resize outcome =
+    let size =
+      match Tessera.Patch.size (Tessera.outcome_patch outcome) with
+      | Tessera.Patch.Set size -> size
+      | Tessera.Patch.Keep -> failwith "a proxy resize outcome must set its size"
+    in
+    expect_record (fun sequence -> Record.resize ~sequence ~size ~pixels:None);
+    expect_effects outcome
+  in
   let pty = Session.Loop.pty (Session.loop session) in
   let latest = ref None in
   let set_latest ~step outcome direct_outcome =
@@ -142,13 +177,23 @@ let drive events =
       match event with
       | Application_bytes bytes -> (
           Fake_platform.push_child_bytes pty bytes;
-          let direct_outcome = direct_ingest direct bytes in
-          (match Session.on_master_readable session with
-          | Session.Application_bytes outcome -> set_latest ~step outcome direct_outcome
-          | Session.Application_ingest_failed error ->
+          expect_record (fun sequence ->
+              Record.traffic ~sequence ~direction:Foundation.Types.Application_to_terminal ~bytes);
+          (match (direct_ingest_result direct bytes, Session.on_master_readable session) with
+          | Ok direct_outcome, Session.Application_bytes outcome ->
+              direct := Tessera.session direct_outcome;
+              expect_effects direct_outcome;
+              set_latest ~step outcome direct_outcome
+          | Error _, Session.Application_ingest_failed _ -> ()
+          | Ok _, Session.Application_ingest_failed error ->
               failwith
                 (Format.asprintf "%s unexpectedly failed: %a" step Tessera_unix.Unix_adapter.pp_error
                    (Err.Error.kind error))
+          | Error error, Session.Application_bytes _ ->
+              failwith
+                (Format.asprintf "%s proxy unexpectedly accepted malformed bytes: %a" step
+                   (Err.Error.pp_kind Tessera.Session.pp_error)
+                   error)
           | _ -> failwith (step ^ " returned a non-application event"));
           match read_available terminal_out_read ~len:(Bytes.length bytes) with
           | Some relayed when Bytes.equal relayed bytes -> ()
@@ -157,6 +202,8 @@ let drive events =
       | Terminal_input bytes -> (
           let written = Unix.write terminal_in_write bytes 0 (Bytes.length bytes) in
           if written <> Bytes.length bytes then failwith "short test pipe write";
+          expect_record (fun sequence ->
+              Record.traffic ~sequence ~direction:Foundation.Types.Terminal_to_application ~bytes);
           (match Session.on_terminal_readable session with
           | Session.Terminal_input_relayed count when count = Bytes.length bytes -> ()
           | _ -> failwith (step ^ " terminal input was not relayed"));
@@ -169,13 +216,31 @@ let drive events =
           Fake_platform.set_physical_winsize (or_fail (winsize columns rows));
           Fake_platform.trigger_host_resize pty;
           let direct_outcome = direct_resize direct columns rows in
+          expect_resize direct_outcome;
           match Session.on_wakeup session with
           | Session.Resized (Session.Loop.Resized outcome) -> set_latest ~step outcome direct_outcome
           | _ -> failwith (step ^ " resize was not applied"))
-      | Wakeup -> ignore (Session.on_wakeup session)
-      | Application_eof ->
+      | Wakeup -> (
+          (* A wakeup always re-queries and applies the physical geometry, including a same-size
+             refresh.  Mirror that core ingress in the direct oracle rather than treating wakeup
+             as a no-op; a same-size resize can intentionally reset renderer transient state. *)
+          let raw =
+            match Fake_platform.physical_winsize () with
+            | Ok raw -> raw
+            | Error _ -> failwith (step ^ " fake physical size was not configured")
+          in
+          let direct_outcome =
+            direct_resize direct
+              (Foundation.UInt.to_int (Tessera_proxy_platform.Winsize.columns raw))
+              (Foundation.UInt.to_int (Tessera_proxy_platform.Winsize.rows raw))
+          in
+          expect_resize direct_outcome;
+          match Session.on_wakeup session with
+          | Session.Resized (Session.Loop.Resized outcome) -> set_latest ~step outcome direct_outcome
+          | _ -> failwith (step ^ " wakeup was not applied"))
+      | Application_eof -> (
           Fake_platform.close_child_output pty;
-          (match Session.on_master_readable session with
+          match Session.on_master_readable session with
           | Session.Application_eof outcome ->
               let direct_outcome =
                 match Tessera.finish !direct with
@@ -187,12 +252,12 @@ let drive events =
                       (Format.asprintf "direct finish failed: %a" (Err.Error.pp_kind Tessera.Session.pp_error) error)
               in
               set_latest ~step outcome direct_outcome
-          | _ -> failwith (step ^ " did not produce application EOF"));
-          cursor := Ring.cursor ring)
+          | _ -> failwith (step ^ " did not produce application EOF")))
     events;
+  assert_observer_log ~expected:!expected_records ~actual:(records_since ring start_cursor);
   Unix.close terminal_in_write;
   Unix.close terminal_out_read;
-  (session, !latest, !cursor)
+  (session, !latest, Ring.cursor ring)
 
 let%expect_test "scenario vocabulary preserves exact traffic and matches the direct logical renderer after every step" =
   let terminal_in_read, terminal_in_write = Unix.pipe () in
@@ -325,3 +390,93 @@ let%expect_test "a fixed-seed generated corpus remains a direct-renderer equival
     cells:
       00: glyph(a), blank, blank, blank
       01: glyph(\231\149\140), wide-continuation, blank, blank |}]
+
+(* This deterministic state machine is deliberately a property corpus rather than an expect
+   golden: each seed exercises the entire proxy contract (both relay directions, resize/wakeup
+   ordering, and direct-session equivalence) and reports a replayable scenario if it fails.  The
+   small curated scenario above remains the readable golden; this catches interactions that would
+   be impractical to enumerate. *)
+let pp_event = function
+  | Application_bytes bytes -> Printf.sprintf "application(%s)" (hex bytes)
+  | Terminal_input bytes -> Printf.sprintf "terminal(%s)" (hex bytes)
+  | Resize (columns, rows) -> Printf.sprintf "resize(%dx%d)" columns rows
+  | Wakeup -> "wakeup"
+  | Application_eof -> "application-eof"
+
+let generated_events seed =
+  let random = Test_random.State.make [| seed |] in
+  let application_fragments =
+    [|
+      "a";
+      "\027[2C";
+      "\231\149\140";
+      "\027[H";
+      "\027[2J";
+      "\027[?25l";
+      "\027[?25h";
+      "\027]2;generated title\007";
+      "\027[31mR\027[0m";
+      "\027[2@";
+      "\027[1P";
+      "\027[2K";
+      "\027[1L";
+      "\027[1M";
+      "\n";
+      "\027[?1049h";
+      "\027[?1049l";
+      "\255";
+    |]
+  in
+  let terminal_fragments = [| "\000"; "\027[A"; "\255"; "x"; "\027[Z" |] in
+  List.init 128 (fun _ ->
+      match Test_random.State.int random 7 with
+      | 0 | 1 | 2 ->
+          Application_bytes
+            (Bytes.of_string application_fragments.(Test_random.State.int random (Array.length application_fragments)))
+      | 3 | 4 ->
+          Terminal_input
+            (Bytes.of_string terminal_fragments.(Test_random.State.int random (Array.length terminal_fragments)))
+      | 5 -> Resize (1 + Test_random.State.int random 12, 1 + Test_random.State.int random 6)
+      | _ -> Wakeup)
+  @ [ Application_eof ]
+
+let rec remove_at index = function
+  | [] -> []
+  | _ :: rest when index = 0 -> rest
+  | item :: rest -> item :: remove_at (index - 1) rest
+
+(* A failing sequence is reduced before it is reported.  The trailing EOF is retained so every
+   candidate still exercises the proxy's normal lifetime.  This greedy delta pass is deliberately
+   local and deterministic: the printed scenario can be copied into a curated regression without
+   depending on a QCheck shrinker or an OCaml-version-specific random implementation. *)
+let minimize_failure events =
+  let fails candidate =
+    try
+      ignore (drive candidate);
+      false
+    with Failure _ -> true
+  in
+  let rec loop candidate index =
+    if index >= List.length candidate - 1 then candidate
+    else
+      let reduced = remove_at index candidate in
+      if fails reduced then loop reduced index else loop candidate (index + 1)
+  in
+  loop events 0
+
+let serialise_events events = String.concat "; " (List.map pp_event events)
+
+let%expect_test "generated proxy event sequences preserve relay and direct-session equivalence" =
+  let seeds = Array.init 32 (fun index -> 0x50524f58 + index) in
+  Array.iter
+    (fun seed ->
+      let events = generated_events seed in
+      try ignore (drive events)
+      with Failure message ->
+        let reduced = minimize_failure events in
+        failwith
+          (Printf.sprintf "generated proxy contract failed (seed=%08x; scenario=[%s]; minimized=[%s]): %s" seed
+             (serialise_events events) (serialise_events reduced) message))
+    seeds;
+  Format.printf "generated proxy contract passed for %d replayable seeds@." (Array.length seeds);
+  [%expect {| generated proxy contract passed for 32 replayable seeds |}]

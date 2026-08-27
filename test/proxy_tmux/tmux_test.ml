@@ -40,12 +40,93 @@ let run ?(capture = false) program arguments =
     | _, Unix.WSIGNALED signal -> failf "%s was killed by signal %d" command signal
     | _, Unix.WSTOPPED signal -> failf "%s stopped by signal %d" command signal
 
-let tmux socket arguments = run "tmux" ([ "-L"; socket; "-f"; "/dev/null" ] @ arguments)
-let tmux_capture socket arguments = run ~capture:true "tmux" ([ "-L"; socket; "-f"; "/dev/null" ] @ arguments)
+let tmux socket arguments = run "tmux" ([ "-S"; socket; "-f"; "/dev/null" ] @ arguments)
+let tmux_capture socket arguments = run ~capture:true "tmux" ([ "-S"; socket; "-f"; "/dev/null" ] @ arguments)
 
 let read_file path =
   let input = open_in_bin path in
   Fun.protect ~finally:(fun () -> close_in_noerr input) (fun () -> really_input_string input (in_channel_length input))
+
+let write_file path contents =
+  let output = open_out_bin path in
+  Fun.protect ~finally:(fun () -> close_out_noerr output) (fun () -> output_string output contents)
+
+let regenerate_goldens = Sys.getenv_opt "TESSERA_PROXY_TMUX_WRITE_GOLDENS" = Some "1"
+
+(* GitHub-hosted runners can take longer than a local machine to schedule the
+   proxy and its PTY.  This remains a bounded wait while leaving enough room
+   for an otherwise healthy interaction to complete. *)
+let tmux_wait_timeout_seconds = "30"
+let tmux_wait_timeout = 30.
+
+type input = Keys of string list | Literal of string
+
+type case = {
+  name : string;
+  input : input;
+  resize : (int * int) option;
+  ready_text : string;
+  expected_result : string;
+  golden : string;
+}
+
+let cases =
+  [
+    {
+      name = "dialog-menu-submit";
+      input = Keys [ "Down"; "Enter" ];
+      resize = None;
+      ready_text = "Dialog menu";
+      expected_result = "second";
+      golden = "dialog-menu-submit.pane";
+    };
+    {
+      name = "whiptail-menu-cancel";
+      input = Keys [ "Escape" ];
+      resize = None;
+      ready_text = "Whiptail menu";
+      expected_result = "cancel\n";
+      golden = "whiptail-menu-cancel.pane";
+    };
+    {
+      name = "vt-form-edit";
+      input = Literal "proxy value";
+      resize = None;
+      ready_text = "FORM: enter value>";
+      expected_result = "proxy value\n";
+      golden = "vt-form-edit.pane";
+    };
+    {
+      name = "vt-scroll-redraw";
+      input = Keys [ "Enter" ];
+      resize = None;
+      ready_text = "SCROLL START";
+      expected_result = "redrawn\n";
+      golden = "vt-scroll-redraw.pane";
+    };
+    {
+      name = "vt-resize-redraw";
+      input = Keys [ "Enter" ];
+      resize = Some (60, 16);
+      ready_text = "RESIZE WAITING";
+      expected_result = "16 60\n";
+      golden = "vt-resize-redraw.pane";
+    };
+  ]
+
+let fresh_server () =
+  let directory = Filename.temp_file "tessera-proxy-tmux-test" "" in
+  Sys.remove directory;
+  Unix.mkdir directory 0o700;
+  (directory, Filename.concat directory "tmux.sock")
+
+let remove_if_present path = try Sys.remove path with Sys_error _ -> ()
+
+let cleanup_server ~directory ~socket ~result =
+  ignore (try tmux socket [ "kill-server" ] with Failure _ -> "");
+  remove_if_present result;
+  remove_if_present socket;
+  try Unix.rmdir directory with Unix.Unix_error _ -> ()
 
 let contains ~needle haystack =
   let needle_length = String.length needle in
@@ -55,60 +136,22 @@ let contains ~needle haystack =
   in
   needle = "" || loop 0
 
-type input = Keys of string list | Literal of string
-
-type case = {
-  name : string;
-  input : input;
-  resize : (int * int) option;
-  expected_result : string;
-  expected_pane : string;
-}
-
-let cases =
-  [
-    {
-      name = "dialog-menu-submit";
-      input = Keys [ "Down"; "Enter" ];
-      resize = None;
-      expected_result = "second";
-      expected_pane = "Dialog menu";
-    };
-    {
-      name = "whiptail-menu-cancel";
-      input = Keys [ "Escape" ];
-      resize = None;
-      expected_result = "cancel\n";
-      expected_pane = "WHIPTAIL CANCELLED";
-    };
-    {
-      name = "vt-form-edit";
-      input = Literal "proxy value";
-      resize = None;
-      expected_result = "proxy value\n";
-      expected_pane = "FORM SAVED: proxy value";
-    };
-    {
-      name = "vt-scroll-redraw";
-      input = Keys [ "Enter" ];
-      resize = None;
-      expected_result = "redrawn\n";
-      expected_pane = "redrawn two";
-    };
-    {
-      name = "vt-resize-redraw";
-      input = Keys [ "Enter" ];
-      resize = Some (60, 16);
-      expected_result = "16 60\n";
-      expected_pane = "RESIZE APPLIED: 16 60";
-    };
-  ]
+let wait_for_pane ~socket ~needle =
+  let deadline = Unix.gettimeofday () +. tmux_wait_timeout in
+  let rec loop () =
+    let pane = tmux_capture socket [ "capture-pane"; "-p"; "-t"; "case:0.0" ] in
+    if contains ~needle pane then ()
+    else if Unix.gettimeofday () >= deadline then failf "pane never became ready with %S:\n%s" needle pane
+    else (
+      ignore (Unix.select [] [] [] 0.05);
+      loop ())
+  in
+  loop ()
 
 let test_case ~proxy ~fixture case =
-  let socket = Printf.sprintf "tessera-test-%d-%s" (Unix.getpid ()) case.name in
+  let directory, socket = fresh_server () in
   let session = "case" in
-  let directory = Filename.get_temp_dir_name () in
-  let result = Filename.concat directory (Printf.sprintf "tessera-%d-%s.result" (Unix.getpid ()) case.name) in
+  let result = Filename.concat directory "result" in
   let ready_token = Printf.sprintf "ready-%d-%s" (Unix.getpid ()) case.name in
   let token = Printf.sprintf "done-%d-%s" (Unix.getpid ()) case.name in
   let captured_token = Printf.sprintf "captured-%d-%s" (Unix.getpid ()) case.name in
@@ -128,13 +171,15 @@ let test_case ~proxy ~fixture case =
         shell_quote result;
       ]
   in
-  let cleanup () = ignore (try tmux socket [ "kill-server" ] with Failure _ -> "") in
+  let cleanup () = cleanup_server ~directory ~socket ~result in
   Fun.protect ~finally:cleanup (fun () ->
       ignore (tmux socket [ "new-session"; "-d"; "-s"; session; "-x"; "40"; "-y"; "10"; "sleep 60" ]);
       ignore (tmux socket [ "set-option"; "-g"; "status"; "off" ]);
       ignore (tmux socket [ "set-window-option"; "-t"; session ^ ":0"; "remain-on-exit"; "on" ]);
       ignore (tmux socket [ "respawn-pane"; "-k"; "-t"; session ^ ":0.0"; command ]);
-      ignore (run "timeout" [ "10"; "tmux"; "-L"; socket; "-f"; "/dev/null"; "wait-for"; ready_token ]);
+      ignore
+        (run "timeout" [ tmux_wait_timeout_seconds; "tmux"; "-S"; socket; "-f"; "/dev/null"; "wait-for"; ready_token ]);
+      wait_for_pane ~socket ~needle:case.ready_text;
       (match case.resize with
       | None -> ()
       | Some (columns, rows) ->
@@ -146,15 +191,20 @@ let test_case ~proxy ~fixture case =
       | Literal text ->
           ignore (tmux socket [ "send-keys"; "-t"; session ^ ":0.0"; "-l"; text ]);
           ignore (tmux socket [ "send-keys"; "-t"; session ^ ":0.0"; "Enter" ]));
-      ignore (run "timeout" [ "10"; "tmux"; "-L"; socket; "-f"; "/dev/null"; "wait-for"; token ]);
+      ignore (run "timeout" [ tmux_wait_timeout_seconds; "tmux"; "-S"; socket; "-f"; "/dev/null"; "wait-for"; token ]);
       let pane = tmux_capture socket [ "capture-pane"; "-p"; "-t"; session ^ ":0.0" ] in
       ignore (tmux socket [ "wait-for"; "-S"; captured_token ]);
       let result_contents = read_file result in
+      let golden_path = Filename.concat (Filename.concat (Filename.dirname fixture) "goldens") case.golden in
       if not (String.equal result_contents case.expected_result) then
         failf "%s result mismatch: expected %S, got %S" case.name case.expected_result result_contents;
-      if not (contains ~needle:case.expected_pane pane) then
-        failf "%s pane capture is missing %S:\n%s" case.name case.expected_pane pane;
-      Printf.printf "%s: result and pane golden matched\n%!" case.name)
+      (if regenerate_goldens then write_file golden_path pane
+       else
+         let golden = read_file golden_path in
+         if not (String.equal pane golden) then
+           failf "%s pane golden mismatch:\nexpected %S\ngot %S" case.name golden pane);
+      Printf.printf "%s: result and full-pane golden %s\n%!" case.name
+        (if regenerate_goldens then "regenerated" else "matched"))
 
 let version program arguments = String.trim (run ~capture:true program arguments)
 

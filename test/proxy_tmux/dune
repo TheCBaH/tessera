@@ -2,7 +2,10 @@
  (name tmux_test)
  (modules tmux_test)
  (libraries unix)
- (deps fixture.sh %{exe:../../lib/proxy_linux/proxy.exe})
+ (deps
+  fixture.sh
+  (glob_files goldens/*.pane)
+  %{exe:../../lib/proxy_linux/proxy.exe})
  (action
   (setenv
    TESSERA_PROXY
