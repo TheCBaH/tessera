@@ -10,6 +10,9 @@ module Rgb : sig
   type t
 
   val make : red:int -> green:int -> blue:int -> t option
+  val red : t -> int
+  val green : t -> int
+  val blue : t -> int
   val pp : Format.formatter -> t -> unit
 end
 

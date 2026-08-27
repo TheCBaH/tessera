@@ -43,6 +43,21 @@ end
 
 module E = Err.Make (Error)
 
+type checkpoint_error = [ `Malformed of string | `Policy_limit_exceeded of string | `Wire of Wire.error ]
+
+let pp_checkpoint_error ppf = function
+  | `Malformed field -> Format.fprintf ppf "malformed %s" field
+  | `Policy_limit_exceeded field -> Format.fprintf ppf "policy limit exceeded: %s" field
+  | `Wire error -> Format.fprintf ppf "wire(%a)" Wire.pp_error error
+
+module Checkpoint_error = struct
+  type nonrec error = checkpoint_error
+
+  let pp_error = pp_checkpoint_error
+end
+
+module CE = Err.Make (Checkpoint_error)
+
 let initial =
   {
     byte_offset = Byte_offset.zero;
@@ -528,3 +543,193 @@ let finish policy (continuation : continuation) =
                 };
               items;
             })
+
+(* Checkpoint codec: a fixed-order, length-delimited encoding of [continuation]. Field order is part of this
+   version's wire contract; a future incompatible layout must be a new [Tessera.Checkpoint] version rather than a
+   silent reorder. *)
+
+let ( let* ) = Result.bind
+
+let wire_read read reader =
+  match read reader with Error error -> CE.fail (`Wire (Err.Error.kind error)) | Ok value -> Ok value
+
+let encode_byte_offset buffer offset = Wire.write_varint64 buffer (UInt64.to_int64 (Byte_offset.to_uint64 offset))
+
+let decode_byte_offset reader =
+  let* raw = wire_read Wire.read_varint64 reader in
+  match UInt64.of_int64 raw with
+  | Error _ -> CE.fail (`Malformed "byte offset")
+  | Ok value -> Ok (Byte_offset.of_uint64 value)
+
+let encode_control_string buffer = function
+  | Apc -> Wire.write_u8 buffer 0
+  | Dcs -> Wire.write_u8 buffer 1
+  | Pm -> Wire.write_u8 buffer 2
+  | Sos -> Wire.write_u8 buffer 3
+
+let decode_control_string reader =
+  let* tag = wire_read Wire.read_u8 reader in
+  match tag with
+  | 0 -> Ok Apc
+  | 1 -> Ok Dcs
+  | 2 -> Ok Pm
+  | 3 -> Ok Sos
+  | _ -> CE.fail (`Malformed "control string kind")
+
+let encode_diagnostics_left buffer = function
+  | None -> Wire.write_bool buffer false
+  | Some value ->
+      Wire.write_bool buffer true;
+      Wire.write_varint buffer (UInt.to_int value)
+
+let decode_diagnostics_left reader ~policy =
+  let* present = wire_read Wire.read_bool reader in
+  if not present then Ok None
+  else
+    let* raw = wire_read Wire.read_varint reader in
+    match UInt.of_int raw with
+    | Error _ -> CE.fail (`Malformed "diagnostics left")
+    | Ok value ->
+        if UInt.compare value (Limits.max_diagnostics (Policy.limits policy)) > 0 then
+          CE.fail (`Policy_limit_exceeded "diagnostics left")
+        else Ok (Some value)
+
+let control_bytes_limit policy = UInt.to_int (Limits.max_control_bytes (Policy.limits policy))
+
+let validate_control_bytes ~policy ~field length =
+  if length > control_bytes_limit policy then CE.fail (`Policy_limit_exceeded field) else Ok ()
+
+let encode_utf8 buffer utf8 =
+  let scalars = Unicode.pending utf8 in
+  Wire.write_varint buffer (List.length scalars);
+  List.iter (fun scalar -> Wire.write_varint buffer (Uchar.to_int scalar)) scalars
+
+let decode_utf8 reader ~policy =
+  let* count = wire_read Wire.read_varint reader in
+  if count < 0 then CE.fail (`Malformed "utf8 pending length")
+  else if count > control_bytes_limit policy then CE.fail (`Policy_limit_exceeded "utf8 pending length")
+  else
+    let rec loop remaining acc =
+      if remaining = 0 then Ok (List.rev acc)
+      else
+        let* raw = wire_read Wire.read_varint reader in
+        if raw < 0 || not (Uchar.is_valid raw) then CE.fail (`Malformed "utf8 pending scalar")
+        else loop (remaining - 1) (Uchar.of_int raw :: acc)
+    in
+    let* scalars = loop count [] in
+    Ok (Unicode.of_pending scalars)
+
+let encode_utf8_bytes buffer = function
+  | None -> Wire.write_bool buffer false
+  | Some { codepoint; minimum; offset; remaining } ->
+      Wire.write_bool buffer true;
+      Wire.write_varint buffer codepoint;
+      Wire.write_varint buffer minimum;
+      encode_byte_offset buffer offset;
+      Wire.write_varint buffer remaining
+
+let decode_utf8_bytes reader =
+  let* present = wire_read Wire.read_bool reader in
+  if not present then Ok None
+  else
+    let* codepoint = wire_read Wire.read_varint reader in
+    let* minimum = wire_read Wire.read_varint reader in
+    let* offset = decode_byte_offset reader in
+    let* remaining = wire_read Wire.read_varint reader in
+    Ok (Some { codepoint; minimum; offset; remaining })
+
+let encode_parser buffer = function
+  | Ground -> Wire.write_u8 buffer 0
+  | Escape offset ->
+      Wire.write_u8 buffer 1;
+      encode_byte_offset buffer offset
+  | Csi (params, offset) ->
+      Wire.write_u8 buffer 2;
+      Wire.write_string buffer params;
+      encode_byte_offset buffer offset
+  | Csi_discard offset ->
+      Wire.write_u8 buffer 3;
+      encode_byte_offset buffer offset
+  | Osc (payload, offset) ->
+      Wire.write_u8 buffer 4;
+      Wire.write_string buffer payload;
+      encode_byte_offset buffer offset
+  | Osc_escape (payload, offset) ->
+      Wire.write_u8 buffer 5;
+      Wire.write_string buffer payload;
+      encode_byte_offset buffer offset
+  | Discard_osc offset ->
+      Wire.write_u8 buffer 6;
+      encode_byte_offset buffer offset
+  | Discard_osc_escape offset ->
+      Wire.write_u8 buffer 7;
+      encode_byte_offset buffer offset
+  | Discard_string (kind, offset) ->
+      Wire.write_u8 buffer 8;
+      encode_control_string buffer kind;
+      encode_byte_offset buffer offset
+  | Discard_string_escape (kind, offset) ->
+      Wire.write_u8 buffer 9;
+      encode_control_string buffer kind;
+      encode_byte_offset buffer offset
+
+let decode_parser reader ~policy =
+  let* tag = wire_read Wire.read_u8 reader in
+  match tag with
+  | 0 -> Ok Ground
+  | 1 ->
+      let* offset = decode_byte_offset reader in
+      Ok (Escape offset)
+  | 2 ->
+      let* params = wire_read Wire.read_string reader in
+      let* () = validate_control_bytes ~policy ~field:"csi params" (String.length params) in
+      let* () =
+        if csi_parameter_count params > UInt.to_int (Limits.max_csi_params (Policy.limits policy)) then
+          CE.fail (`Policy_limit_exceeded "csi params count")
+        else Ok ()
+      in
+      let* offset = decode_byte_offset reader in
+      Ok (Csi (params, offset))
+  | 3 ->
+      let* offset = decode_byte_offset reader in
+      Ok (Csi_discard offset)
+  | 4 ->
+      let* payload = wire_read Wire.read_string reader in
+      let* () = validate_control_bytes ~policy ~field:"osc payload" (String.length payload) in
+      let* offset = decode_byte_offset reader in
+      Ok (Osc (payload, offset))
+  | 5 ->
+      let* payload = wire_read Wire.read_string reader in
+      let* () = validate_control_bytes ~policy ~field:"osc payload" (String.length payload) in
+      let* offset = decode_byte_offset reader in
+      Ok (Osc_escape (payload, offset))
+  | 6 ->
+      let* offset = decode_byte_offset reader in
+      Ok (Discard_osc offset)
+  | 7 ->
+      let* offset = decode_byte_offset reader in
+      Ok (Discard_osc_escape offset)
+  | 8 ->
+      let* kind = decode_control_string reader in
+      let* offset = decode_byte_offset reader in
+      Ok (Discard_string (kind, offset))
+  | 9 ->
+      let* kind = decode_control_string reader in
+      let* offset = decode_byte_offset reader in
+      Ok (Discard_string_escape (kind, offset))
+  | _ -> CE.fail (`Malformed "parser tag")
+
+let encode_continuation buffer (continuation : continuation) =
+  encode_byte_offset buffer continuation.byte_offset;
+  encode_diagnostics_left buffer continuation.diagnostics_left;
+  encode_parser buffer continuation.parser;
+  encode_utf8 buffer continuation.utf8;
+  encode_utf8_bytes buffer continuation.utf8_bytes
+
+let decode_continuation reader ~policy =
+  let* byte_offset = decode_byte_offset reader in
+  let* diagnostics_left = decode_diagnostics_left reader ~policy in
+  let* parser = decode_parser reader ~policy in
+  let* utf8 = decode_utf8 reader ~policy in
+  let* utf8_bytes = decode_utf8_bytes reader in
+  Ok { byte_offset; diagnostics_left; parser; utf8; utf8_bytes }

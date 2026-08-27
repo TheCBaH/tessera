@@ -10,3 +10,5 @@ let add value increment =
 let compare = UInt64.compare
 let equal = UInt64.equal
 let pp = UInt64.pp
+let to_uint64 value = value
+let of_uint64 value = value

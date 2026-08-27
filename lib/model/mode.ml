@@ -8,6 +8,7 @@ let auto_wrap (value : t) = value.auto_wrap
 let cursor_visible (value : t) = value.cursor_visible
 let insert (value : t) = value.insert
 let origin (value : t) = value.origin
+let make ~auto_wrap ~cursor_visible ~insert ~origin : t = { auto_wrap; cursor_visible; insert; origin }
 let empty_delta : delta = { auto_wrap = Keep; cursor_visible = Keep; insert = Keep; origin = Keep }
 let ansi_mode_delta ~enabled = function 4 -> Some { empty_delta with insert = Set enabled } | _ -> None
 

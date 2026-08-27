@@ -46,6 +46,7 @@ module Patch = Tessera_renderer.Patch
 module Renderer = Tessera_renderer.Renderer
 module Decoder = Tessera_decoder.Decoder
 module Session = Session
+module Checkpoint = Checkpoint
 
 type outcome = Session.outcome
 type session = Session.t

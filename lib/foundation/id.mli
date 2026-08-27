@@ -5,3 +5,4 @@ val equal : 'kind t -> 'kind t -> bool
 val of_uint : UInt.t -> 'kind t
 val pp : Format.formatter -> 'kind t -> unit
 val succ : 'kind t -> ('kind t, UInt.error) Err.t
+val to_uint : 'kind t -> UInt.t

@@ -323,5 +323,6 @@ module Tab_stops = struct
   let remove value column = Set.remove column value
   let mem value column = Set.mem column value
   let next value column = Set.find_first_opt (fun next -> Tessera_foundation.Types.Column.compare next column > 0) value
+  let fold_left f initial value = Set.fold (fun column result -> f result column) value initial
   let pp ppf value = Format.fprintf ppf "tab-stops(%d)" (Set.cardinal value)
 end

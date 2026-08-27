@@ -13,4 +13,5 @@
   lineage_id
   types
   limits
-  policy))
+  policy
+  wire))

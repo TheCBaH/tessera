@@ -9,4 +9,4 @@
   tessera_renderer
   tessera_decoder
   tessera_terminfo)
- (modules session tessera))
+ (modules checkpoint session tessera))

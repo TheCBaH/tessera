@@ -16,6 +16,16 @@ val initial :
   size:Tessera_foundation.Types.Size.t ->
   t
 
+val make :
+  decoder:Tessera_decoder.Decoder.continuation ->
+  policy:Tessera_foundation.Policy.t ->
+  renderer:Tessera_renderer.Renderer.state ->
+  t
+(** Reassemble a session from its three checkpointed components. Used only by [Checkpoint]. *)
+
+val decoder : t -> Tessera_decoder.Decoder.continuation
+val policy : t -> Tessera_foundation.Policy.t
+val renderer : t -> Tessera_renderer.Renderer.state
 val items : outcome -> Tessera_model.Effect.Item_sequence.t
 val patch : outcome -> Tessera_renderer.Patch.t
 val pp : Format.formatter -> t -> unit

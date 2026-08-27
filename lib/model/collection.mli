@@ -47,6 +47,7 @@ module Tab_stops : sig
 
   val add : t -> Tessera_foundation.Types.Column.t -> t
   val empty : t
+  val fold_left : ('a -> Tessera_foundation.Types.Column.t -> 'a) -> 'a -> t -> 'a
   val mem : t -> Tessera_foundation.Types.Column.t -> bool
   val next : t -> Tessera_foundation.Types.Column.t -> Tessera_foundation.Types.Column.t option
   val pp : Format.formatter -> t -> unit

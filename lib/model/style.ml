@@ -13,6 +13,9 @@ module Rgb = struct
     if List.for_all (fun value -> value >= 0 && value <= 255) [ red; green; blue ] then Some { blue; green; red }
     else None
 
+  let red value = value.red
+  let green value = value.green
+  let blue value = value.blue
   let pp ppf { blue; green; red } = Format.fprintf ppf "(%d,%d,%d)" red green blue
 end
 

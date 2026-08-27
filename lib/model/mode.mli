@@ -11,6 +11,7 @@ val cursor_visible : t -> bool
 val default : t
 val empty_delta : delta
 val insert : t -> bool
+val make : auto_wrap:bool -> cursor_visible:bool -> insert:bool -> origin:bool -> t
 val origin : t -> bool
 val private_mode_delta : enabled:bool -> int -> delta option
 val pp : Format.formatter -> t -> unit

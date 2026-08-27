@@ -694,6 +694,9 @@ let generation value = value.generation
 let lineage_id value = value.lineage_id
 let size value = value.size
 let title value = value.title
+let make_state ~generation ~logical = { generation; state = logical }
+let state_generation (value : state) = value.generation
+let state_logical (value : state) = value.state
 
 let pp ppf (value : state) =
   Format.fprintf ppf "renderer-state(generation=%a; size=%a)" Generation.pp value.generation Types.Size.pp
@@ -718,3 +721,326 @@ let pp_damage ppf value =
 let pp_applied ppf (value : applied) =
   Format.fprintf ppf "{damage=%a; patch=%a; snapshot=%a}" pp_damage value.damage Patch.pp value.patch pp_snapshot
     value.snapshot
+
+(* Checkpoint codec: a fixed-order, length-delimited encoding of [state]. Field order is part of this version's wire
+   contract; a future incompatible layout must be a new [Tessera.Checkpoint] version rather than a silent reorder. *)
+
+type checkpoint_error = [ `Malformed of string | `Policy_limit_exceeded of string | `Wire of Wire.error ]
+
+let pp_checkpoint_error ppf = function
+  | `Malformed field -> Format.fprintf ppf "malformed %s" field
+  | `Policy_limit_exceeded field -> Format.fprintf ppf "policy limit exceeded: %s" field
+  | `Wire error -> Format.fprintf ppf "wire(%a)" Wire.pp_error error
+
+module Checkpoint_error = struct
+  type nonrec error = checkpoint_error
+
+  let pp_error = pp_checkpoint_error
+end
+
+module CE = Err.Make (Checkpoint_error)
+
+let ( let* ) = Result.bind
+
+let wire_read read reader =
+  match read reader with Error error -> CE.fail (`Wire (Err.Error.kind error)) | Ok value -> Ok value
+
+let write_uint buffer value = Wire.write_varint buffer (UInt.to_int value)
+
+let read_uint reader =
+  let* raw = wire_read Wire.read_varint reader in
+  if raw < 0 then CE.fail (`Malformed "uint")
+  else match UInt.of_int raw with Error _ -> CE.fail (`Malformed "uint") | Ok value -> Ok value
+
+let write_column buffer column = write_uint buffer (Types.Column.to_uint column)
+let read_column reader = Result.map Types.Column.of_uint (read_uint reader)
+let write_row buffer row = write_uint buffer (Types.Row.to_uint row)
+let read_row reader = Result.map Types.Row.of_uint (read_uint reader)
+
+let write_coord buffer (coord : Types.coord) =
+  write_column buffer coord.Types.column;
+  write_row buffer coord.Types.row
+
+let read_coord reader =
+  let* column = read_column reader in
+  let* row = read_row reader in
+  Ok (Types.coord ~column ~row)
+
+let write_generation buffer generation = write_uint buffer (Id.to_uint generation)
+let read_generation reader = Result.map Id.of_uint (read_uint reader)
+let write_lineage_id buffer lineage_id = write_uint buffer (Id.to_uint lineage_id)
+let read_lineage_id reader = Result.map Id.of_uint (read_uint reader)
+let write_line_id buffer line_id = write_uint buffer (Id.to_uint line_id)
+let read_line_id reader = Result.map Id.of_uint (read_uint reader)
+let write_screen buffer = function Types.Alternate -> Wire.write_u8 buffer 0 | Types.Primary -> Wire.write_u8 buffer 1
+
+let read_screen reader =
+  let* tag = wire_read Wire.read_u8 reader in
+  match tag with 0 -> Ok Types.Alternate | 1 -> Ok Types.Primary | _ -> CE.fail (`Malformed "screen tag")
+
+let write_color buffer = function
+  | Tessera_model.Style.Default -> Wire.write_u8 buffer 0
+  | Tessera_model.Style.Indexed index ->
+      Wire.write_u8 buffer 1;
+      Wire.write_u8 buffer (Tessera_model.Style.Palette_index.to_int index)
+  | Tessera_model.Style.Rgb rgb ->
+      Wire.write_u8 buffer 2;
+      Wire.write_u8 buffer (Tessera_model.Style.Rgb.red rgb);
+      Wire.write_u8 buffer (Tessera_model.Style.Rgb.green rgb);
+      Wire.write_u8 buffer (Tessera_model.Style.Rgb.blue rgb)
+
+let read_color reader =
+  let* tag = wire_read Wire.read_u8 reader in
+  match tag with
+  | 0 -> Ok Tessera_model.Style.Default
+  | 1 -> (
+      let* index = wire_read Wire.read_u8 reader in
+      match Tessera_model.Style.Palette_index.of_int index with
+      | None -> CE.fail (`Malformed "palette index")
+      | Some index -> Ok (Tessera_model.Style.Indexed index))
+  | 2 -> (
+      let* red = wire_read Wire.read_u8 reader in
+      let* green = wire_read Wire.read_u8 reader in
+      let* blue = wire_read Wire.read_u8 reader in
+      match Tessera_model.Style.Rgb.make ~red ~green ~blue with
+      | None -> CE.fail (`Malformed "rgb color")
+      | Some rgb -> Ok (Tessera_model.Style.Rgb rgb))
+  | _ -> CE.fail (`Malformed "color tag")
+
+let write_style buffer (value : Tessera_model.Style.t) =
+  write_color buffer value.background;
+  write_color buffer value.foreground;
+  Wire.write_bool buffer value.rendition.bold;
+  Wire.write_bool buffer value.rendition.faint;
+  Wire.write_bool buffer value.rendition.invisible;
+  Wire.write_bool buffer value.rendition.inverse;
+  Wire.write_bool buffer value.rendition.italic;
+  Wire.write_bool buffer value.rendition.strikethrough;
+  Wire.write_bool buffer value.rendition.underline
+
+let read_style reader =
+  let* background = read_color reader in
+  let* foreground = read_color reader in
+  let* bold = wire_read Wire.read_bool reader in
+  let* faint = wire_read Wire.read_bool reader in
+  let* invisible = wire_read Wire.read_bool reader in
+  let* inverse = wire_read Wire.read_bool reader in
+  let* italic = wire_read Wire.read_bool reader in
+  let* strikethrough = wire_read Wire.read_bool reader in
+  let* underline = wire_read Wire.read_bool reader in
+  Ok
+    ({ background; foreground; rendition = { bold; faint; invisible; inverse; italic; strikethrough; underline } }
+      : Tessera_model.Style.t)
+
+let write_mode buffer mode =
+  Wire.write_bool buffer (Tessera_model.Mode.auto_wrap mode);
+  Wire.write_bool buffer (Tessera_model.Mode.cursor_visible mode);
+  Wire.write_bool buffer (Tessera_model.Mode.insert mode);
+  Wire.write_bool buffer (Tessera_model.Mode.origin mode)
+
+let read_mode reader =
+  let* auto_wrap = wire_read Wire.read_bool reader in
+  let* cursor_visible = wire_read Wire.read_bool reader in
+  let* insert = wire_read Wire.read_bool reader in
+  let* origin = wire_read Wire.read_bool reader in
+  Ok (Tessera_model.Mode.make ~auto_wrap ~cursor_visible ~insert ~origin)
+
+let write_title buffer = function
+  | None -> Wire.write_bool buffer false
+  | Some title ->
+      Wire.write_bool buffer true;
+      Wire.write_string buffer title
+
+let read_title reader =
+  let* present = wire_read Wire.read_bool reader in
+  if not present then Ok None
+  else
+    let* title = wire_read Wire.read_string reader in
+    Ok (Some title)
+
+let control_bytes_limit policy = UInt.to_int (Limits.max_control_bytes (Policy.limits policy))
+
+let write_cell buffer cell =
+  let line_id = Tessera_model.Cell.line_id cell in
+  let style = Tessera_model.Cell.style cell in
+  (match Tessera_model.Cell.contents cell with
+  | Tessera_model.Cell.Empty -> Wire.write_u8 buffer 0
+  | Tessera_model.Cell.Glyph _ -> Wire.write_u8 buffer 1
+  | Tessera_model.Cell.Wide_continuation -> Wire.write_u8 buffer 2);
+  write_line_id buffer line_id;
+  write_style buffer style;
+  match Tessera_model.Cell.contents cell with
+  | Tessera_model.Cell.Glyph grapheme ->
+      let scalars = Tessera_model.Unicode.scalars grapheme in
+      write_uint buffer (uint (List.length scalars));
+      List.iter (fun scalar -> Wire.write_varint buffer (Uchar.to_int scalar)) scalars
+  | Tessera_model.Cell.Empty | Tessera_model.Cell.Wide_continuation -> ()
+
+let read_cell reader ~policy =
+  let* tag = wire_read Wire.read_u8 reader in
+  let* line_id = read_line_id reader in
+  let* style = read_style reader in
+  match tag with
+  | 0 -> Ok (Tessera_model.Cell.blank ~line_id ~style)
+  | 1 ->
+      let* count = read_uint reader in
+      let* () =
+        if UInt.to_int count > control_bytes_limit policy then CE.fail (`Policy_limit_exceeded "cell grapheme length")
+        else Ok ()
+      in
+      let rec loop remaining acc =
+        if remaining = 0 then Ok (List.rev acc)
+        else
+          let* raw = wire_read Wire.read_varint reader in
+          if raw < 0 || not (Uchar.is_valid raw) then CE.fail (`Malformed "cell grapheme scalar")
+          else loop (remaining - 1) (Uchar.of_int raw :: acc)
+      in
+      let* scalars = loop (UInt.to_int count) [] in
+      Ok (Tessera_model.Cell.glyph ~line_id ~style (Tessera_model.Unicode.of_scalars scalars))
+  | 2 -> Ok (Tessera_model.Cell.wide_continuation ~line_id ~style)
+  | _ -> CE.fail (`Malformed "cell tag")
+
+(* A grid's physical pages persist beyond its current logical [size] (see Grid's "Raw page access" note), so the
+   checkpoint must capture every page verbatim -- not just the [size]-clipped [Grid.cells] view -- or a restored
+   session that is later resized larger could silently lose content a live session would still show. *)
+let write_grid buffer grid =
+  write_cell buffer (Grid.blank grid);
+  let pages = Grid.pages grid in
+  write_uint buffer (uint (List.length pages));
+  List.iter
+    (fun ((page_column, page_row), page) ->
+      write_uint buffer (uint page_column);
+      write_uint buffer (uint page_row);
+      Array.iter (write_cell buffer) page)
+    pages
+
+let read_grid reader ~size ~policy =
+  let* blank = read_cell reader ~policy in
+  let* page_count = read_uint reader in
+  let* () =
+    if UInt.compare page_count (Limits.max_snapshot_cells (Policy.limits policy)) > 0 then
+      CE.fail (`Policy_limit_exceeded "grid pages")
+    else Ok ()
+  in
+  let page_cells = Grid.page_columns * Grid.page_rows in
+  let read_page () =
+    let rec loop remaining acc =
+      if remaining = 0 then Ok (Array.of_list (List.rev acc))
+      else
+        let* cell = read_cell reader ~policy in
+        loop (remaining - 1) (cell :: acc)
+    in
+    loop page_cells []
+  in
+  let rec loop remaining acc =
+    if remaining = 0 then Ok (List.rev acc)
+    else
+      let* page_column = read_uint reader in
+      let* page_row = read_uint reader in
+      let* page = read_page () in
+      loop (remaining - 1) (((UInt.to_int page_column, UInt.to_int page_row), page) :: acc)
+  in
+  let* pages = loop (UInt.to_int page_count) [] in
+  match Grid.of_pages ~blank ~size pages with None -> CE.fail (`Malformed "grid pages") | Some grid -> Ok grid
+
+let write_buffer buffer (value : State.buffer) =
+  let (cursor : State.cursor) = State.cursor value in
+  Wire.write_bool buffer cursor.pending_wrap;
+  write_coord buffer cursor.position;
+  write_style buffer cursor.style;
+  let margins = State.margins value in
+  write_row buffer margins.Update.top;
+  write_row buffer margins.Update.bottom;
+  (match State.saved value with
+  | None -> Wire.write_bool buffer false
+  | Some saved ->
+      Wire.write_bool buffer true;
+      Wire.write_bool buffer saved.State.origin;
+      write_coord buffer saved.State.position;
+      write_style buffer saved.State.style);
+  let columns =
+    List.rev (Tessera_model.Collection.Tab_stops.fold_left (fun acc column -> column :: acc) [] (State.tabs value))
+  in
+  write_uint buffer (uint (List.length columns));
+  List.iter (write_column buffer) columns;
+  write_grid buffer (State.grid value)
+
+let read_buffer reader ~template ~size ~policy =
+  let* pending_wrap = wire_read Wire.read_bool reader in
+  let* position = read_coord reader in
+  let* style = read_style reader in
+  let cursor : State.cursor = { pending_wrap; position; style } in
+  let* top = read_row reader in
+  let* bottom = read_row reader in
+  let margins : Update.margins = { top; bottom } in
+  let* saved_present = wire_read Wire.read_bool reader in
+  let* saved =
+    if not saved_present then Ok None
+    else
+      let* origin = wire_read Wire.read_bool reader in
+      let* position = read_coord reader in
+      let* style = read_style reader in
+      Ok (Some ({ origin; position; style } : State.saved_cursor))
+  in
+  let* tab_count = read_uint reader in
+  let* () =
+    if UInt.compare tab_count (Limits.max_columns (Policy.limits policy)) > 0 then
+      CE.fail (`Policy_limit_exceeded "tab stops")
+    else Ok ()
+  in
+  let rec read_tabs remaining acc =
+    if remaining = 0 then Ok acc
+    else
+      let* column = read_column reader in
+      read_tabs (remaining - 1) (Tessera_model.Collection.Tab_stops.add acc column)
+  in
+  let* tabs = read_tabs (UInt.to_int tab_count) Tessera_model.Collection.Tab_stops.empty in
+  let* grid = read_grid reader ~size ~policy in
+  let buffer = State.with_cursor template cursor in
+  let buffer = State.with_margins buffer margins in
+  let buffer = State.with_saved buffer saved in
+  let buffer = State.with_tabs buffer tabs in
+  let buffer = State.with_grid buffer grid in
+  Ok buffer
+
+let encode buffer (value : state) =
+  write_generation buffer value.generation;
+  let logical = value.state in
+  write_lineage_id buffer (State.lineage_id logical);
+  let size = State.size logical in
+  write_uint buffer (Types.Size.columns size);
+  write_uint buffer (Types.Size.rows size);
+  write_screen buffer (State.active logical);
+  write_mode buffer (State.modes logical);
+  write_title buffer (State.title logical);
+  write_buffer buffer (State.primary logical);
+  write_buffer buffer (State.alternate logical)
+
+let decode reader ~policy =
+  let* generation = read_generation reader in
+  let* lineage_id = read_lineage_id reader in
+  let* columns = read_uint reader in
+  let* rows = read_uint reader in
+  let* () =
+    if UInt.compare columns (Limits.max_columns (Policy.limits policy)) > 0 then
+      CE.fail (`Policy_limit_exceeded "columns")
+    else if UInt.compare rows (Limits.max_rows (Policy.limits policy)) > 0 then CE.fail (`Policy_limit_exceeded "rows")
+    else Ok ()
+  in
+  let* size =
+    match Types.Size.make ~columns ~rows with Ok value -> Ok value | Error _ -> CE.fail (`Malformed "size")
+  in
+  let* active = read_screen reader in
+  let* modes = read_mode reader in
+  let* title = read_title reader in
+  let base = State.initial ~lineage_id ~size in
+  let template = State.primary base in
+  let* primary = read_buffer reader ~template ~size ~policy in
+  let* alternate = read_buffer reader ~template ~size ~policy in
+  let base = State.with_modes base modes in
+  let base = State.with_title base title in
+  let base = State.with_active_buffer base primary in
+  let base = State.switch_screen base Types.Alternate in
+  let base = State.with_active_buffer base alternate in
+  let base = State.switch_screen base active in
+  Ok { generation; state = base }

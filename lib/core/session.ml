@@ -93,6 +93,10 @@ let items value = value.items
 let patch value = value.patch
 let snapshot value = value.snapshot
 let successor value = value.session
+let make ~decoder ~policy ~renderer = { decoder; policy; renderer }
+let decoder value = value.decoder
+let policy value = value.policy
+let renderer value = value.renderer
 
 let pp ppf value =
   Format.fprintf ppf "session(decoder=%a; renderer=%a)" Tessera_decoder.Decoder.pp value.decoder

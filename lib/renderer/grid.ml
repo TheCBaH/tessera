@@ -94,3 +94,16 @@ let cells grid =
       match page_at grid column row with None -> grid.blank | Some page -> page.(page_index column row))
 
 let stats grid = (Pages.cardinal grid.pages, grid.copied_pages)
+let blank grid = grid.blank
+let pages grid = Pages.bindings grid.pages
+
+let of_pages ~blank ~size pages =
+  if List.for_all (fun (_, page) -> Array.length page = page_cells) pages then
+    Some
+      {
+        blank;
+        copied_pages = 0;
+        pages = List.fold_left (fun acc (key, page) -> Pages.add key page acc) Pages.empty pages;
+        size;
+      }
+  else None

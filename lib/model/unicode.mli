@@ -26,10 +26,14 @@ val feed :
 val finish : Tessera_foundation.Policy.t -> decoder_continuation -> (Grapheme_sequence.t, error) Err.t
 val grapheme_of_scalar : scalar -> grapheme
 val initial : decoder_continuation
+val of_pending : scalar list -> decoder_continuation
+val of_scalars : scalar list -> grapheme
+val pending : decoder_continuation -> scalar list
 val pp_decoder_continuation : Format.formatter -> decoder_continuation -> unit
 val pp_error : Format.formatter -> error -> unit
 val pp_grapheme : Format.formatter -> grapheme -> unit
 val pp_scalar : Format.formatter -> scalar -> unit
 val pp_width : Format.formatter -> width -> unit
+val scalars : grapheme -> scalar list
 val utf8 : grapheme -> string
 val width : grapheme -> width

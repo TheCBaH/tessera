@@ -38,12 +38,13 @@ let cell scalar =
   Model.Cell.glyph ~line_id:Foundation.Line_id.zero ~style:Model.Style.default
     (Model.Unicode.grapheme_of_scalar (Uchar.of_int scalar))
 
-let policy ?(max_control_bytes = 1024) ?(max_csi_params = 16) ?(max_diagnostics = 16) ?(max_snapshot_cells = 1920) () =
-  let* max_columns = uint 80
+let policy ?(max_columns = 80) ?(max_control_bytes = 1024) ?(max_csi_params = 16) ?(max_diagnostics = 16)
+    ?(max_rows = 24) ?(max_snapshot_cells = 1920) () =
+  let* max_columns = uint max_columns
   and* max_control_bytes = uint max_control_bytes
   and* max_csi_params = uint max_csi_params
   and* max_diagnostics = uint max_diagnostics
-  and* max_rows = uint 24
+  and* max_rows = uint max_rows
   and* max_slice_bytes = uint 4096
   and* max_snapshot_cells = uint max_snapshot_cells in
   let* limits =

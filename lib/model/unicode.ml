@@ -44,6 +44,24 @@ end
 
 let initial = { pending = []; segmenter = Uuseg.create `Grapheme_cluster }
 let grapheme_of_scalar scalar = [ scalar ]
+let scalars (grapheme : grapheme) = grapheme
+let of_scalars scalars : grapheme = scalars
+let pending continuation = List.rev continuation.pending
+
+(* [continuation.pending] holds the scalars of the grapheme cluster still open at a boundary decision: grapheme
+   cluster break rules (UAX #29) never reach back across a completed boundary, so a fresh segmenter replayed with
+   just this open prefix reaches a state equivalent to the persisted one. This lets a checkpoint restore the
+   otherwise-opaque [Uuseg.t] automaton from a small, policy-bounded scalar list instead of the segmenter itself. *)
+let of_pending scalars =
+  let segmenter = Uuseg.create `Grapheme_cluster in
+  (* [Uuseg.add] only accepts a fresh external input once it has fully drained the previous one down to [`Await]:
+     each [`Boundary]/[`Uchar] response must be followed by re-adding [`Await] until the automaton is ready again,
+     exactly as {!segment} does for a live feed. *)
+  let rec drain input =
+    match Uuseg.add segmenter input with `Await | `End -> () | `Boundary | `Uchar _ -> drain `Await
+  in
+  List.iter (fun scalar -> drain (`Uchar scalar)) scalars;
+  { pending = List.rev scalars; segmenter }
 
 let pending_limit policy =
   Tessera_foundation.UInt.to_int (Tessera_foundation.Limits.max_control_bytes (Tessera_foundation.Policy.limits policy))
