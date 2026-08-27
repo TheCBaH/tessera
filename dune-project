@@ -72,14 +72,26 @@
   (ocaml (>= 4.14))))
 
 (package
+ (name tessera_proxy_protocol)
+ (synopsis "Versioned observer wire protocol for the Tessera proxy")
+ (description
+  "A length-delimited codec for the proxy's traffic/resize/effect records, authoritative snapshot, and gap notification, independent of any transport.")
+ (license MIT)
+ (depends
+  tessera
+  tessera_proxy_observer
+  (ocaml (>= 4.14))))
+
+(package
  (name tessera_proxy_linux)
  (synopsis "Linux terminal proxy composition root for Tessera")
  (description
-  "Wires Tessera_unix.Unix_adapter, Tessera_proxy_platform, and Tessera_proxy_observer into a proxy session and a minimal tessera-proxy executable.")
+  "Wires Tessera_unix.Unix_adapter, Tessera_proxy_platform, Tessera_proxy_observer, and Tessera_proxy_protocol's socket server into a proxy session and the tessera-proxy executable.")
  (license MIT)
  (depends
   tessera
   tessera_unix
   tessera_proxy_platform
   tessera_proxy_observer
+  tessera_proxy_protocol
   (ocaml (>= 4.14))))

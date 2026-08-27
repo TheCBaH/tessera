@@ -132,10 +132,15 @@ module Make (Platform : Tessera_proxy_platform.Platform.S) = struct
     | Loop.Reported _ -> ());
     Resized outcome
 
-  type ready = Wakeup | Master | Terminal_input
+  type ready = Wakeup | Master | Terminal_input | Extra_read of Unix.file_descr | Extra_write of Unix.file_descr
 
-  let select t ~timeout =
+  let select t ~extra_read_fds ~extra_write_fds ~timeout =
     let master = Platform.master_fd (Loop.pty t.loop) in
-    Loop.select t.loop ~other_read_fds:[ master; t.terminal_in ] ~timeout
-    |> List.map (function Loop.Wakeup -> Wakeup | Loop.Fd fd when fd = master -> Master | Loop.Fd _ -> Terminal_input)
+    Loop.select t.loop ~other_read_fds:([ master; t.terminal_in ] @ extra_read_fds) ~write_fds:extra_write_fds ~timeout
+    |> List.map (function
+      | Loop.Wakeup -> Wakeup
+      | Loop.Fd fd when fd = master -> Master
+      | Loop.Fd fd when fd = t.terminal_in -> Terminal_input
+      | Loop.Fd fd -> Extra_read fd
+      | Loop.Writable fd -> Extra_write fd)
 end

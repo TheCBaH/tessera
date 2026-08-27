@@ -4,6 +4,7 @@ let pp_sequence = Format.pp_print_int
 let compare_sequence = Int.compare
 let initial_sequence = 0
 let next_sequence sequence = sequence + 1
+let sequence_to_int sequence = sequence
 
 module Pixels = struct
   type pixel_unit = Device_pixels | Css_pixels | Unspecified

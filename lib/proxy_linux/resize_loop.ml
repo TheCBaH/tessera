@@ -97,15 +97,18 @@ module Make (Platform : Tessera_proxy_platform.Platform.S) = struct
     drain t;
     requery t
 
-  type ready = Wakeup | Fd of Unix.file_descr
+  type ready = Wakeup | Fd of Unix.file_descr | Writable of Unix.file_descr
 
-  let rec select_read fds timeout =
-    try Unix.select fds [] [] timeout with Unix.Unix_error (Unix.EINTR, _, _) -> select_read fds timeout
+  let rec select_rw read_fds write_fds timeout =
+    try Unix.select read_fds write_fds [] timeout
+    with Unix.Unix_error (Unix.EINTR, _, _) -> select_rw read_fds write_fds timeout
 
-  let select t ~other_read_fds ~timeout =
+  let select t ~other_read_fds ~write_fds ~timeout =
     let wakeup_fd = Platform.resize_wakeup_fd t.pty in
-    let ready_fds, _, _ = select_read (wakeup_fd :: other_read_fds) timeout in
-    let wakeup_ready = List.mem wakeup_fd ready_fds in
-    let other_ready = List.filter (fun fd -> List.mem fd ready_fds) other_read_fds in
-    (if wakeup_ready then [ Wakeup ] else []) @ List.map (fun fd -> Fd fd) other_ready
+    let ready_read_fds, ready_write_fds, _ = select_rw (wakeup_fd :: other_read_fds) write_fds timeout in
+    let wakeup_ready = List.mem wakeup_fd ready_read_fds in
+    let other_ready = List.filter (fun fd -> List.mem fd ready_read_fds) other_read_fds in
+    (if wakeup_ready then [ Wakeup ] else [])
+    @ List.map (fun fd -> Fd fd) other_ready
+    @ List.map (fun fd -> Writable fd) ready_write_fds
 end

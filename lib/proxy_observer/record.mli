@@ -17,6 +17,10 @@ val next_sequence : sequence -> sequence
 (** The sequence after [sequence]. {!Ring.next_sequence} is the only intended caller; kept here, not on {!Ring.t}, so
     {!sequence} stays abstract even from [Ring]. *)
 
+val sequence_to_int : sequence -> int
+(** The wire representation a protocol codec (e.g. [Tessera_proxy_protocol]) needs to encode a record's position;
+    [sequence] stays otherwise abstract so no caller can synthesise or compare one across an unrelated {!Ring.t}. *)
+
 (* Not part of proxy.md's sketch: pixel metadata never reaches [Tessera_foundation.Types.Size.t], but
    this package cannot depend on [tessera_proxy_platform]'s [Winsize.pixels] (proxy.md's package
    layout: only [tessera_proxy_linux] may depend on both platform and observer packages together), so

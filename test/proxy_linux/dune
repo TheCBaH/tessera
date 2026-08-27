@@ -5,7 +5,7 @@
 
 (library
  (name tessera_test_proxy_linux)
- (modules resize_loop_test session_test contract_test)
+ (modules resize_loop_test session_test contract_test observer_server_test)
  (inline_tests
   (modes byte native))
  (libraries
@@ -17,6 +17,7 @@
   tessera_unix
   tessera_proxy_platform
   tessera_proxy_observer
+  tessera_proxy_protocol
   tessera_proxy_linux
   tessera_test_proxy_linux_fake_platform
   unix)

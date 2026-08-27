@@ -1,9 +1,13 @@
 (* The composition root / eventual tessera-proxy executable (proxy.md section 5, implementation order
    step 5): spawns a child under a real PTY, relays both directions, drives the resize protocol, and
-   feeds the observer ring. No wire protocol or socket server yet -- a later, separate increment. *)
+   feeds the observer ring. The observer ring is additionally exposed over a private local Unix-domain
+   socket (milestones.md "observable proxy service"; see Tessera_proxy_linux.Observer_server for the
+   wire protocol/authentication model) -- a later, separate increment from proxy.md's original scope,
+   which stopped at the in-process ring. *)
 
 module Platform = Tessera_proxy_platform_linux.Platform_linux
 module Session = Tessera_proxy_linux.Session.Make (Platform)
+module Observer_server = Tessera_proxy_linux.Observer_server
 
 let die message =
   Printf.eprintf "tessera-proxy: %s\n%!" message;
@@ -61,9 +65,31 @@ let leave_raw_mode fd original =
   | None -> ()
   | Some original -> ( try Unix.tcsetattr fd Unix.TCSANOW original with Unix.Unix_error _ -> ())
 
-let run_loop session =
+(* [XDG_RUNTIME_DIR] is already mode [0o700] and per-user by convention on a system that sets it;
+   falling back to [/tmp] still gets the same protection from {!Observer_server.create}'s own private,
+   [0o700] subdirectory. Each proxy process gets its own socket, named by pid, so unrelated concurrent
+   proxy runs never collide. *)
+let default_socket_path () =
+  let base = match Sys.getenv_opt "XDG_RUNTIME_DIR" with Some dir -> dir | None -> "/tmp" in
+  Filename.concat (Filename.concat base "tessera-proxy") (Printf.sprintf "%d.sock" (Unix.getpid ()))
+
+let create_observer_server ~ring ~policy =
+  match Observer_server.create ~socket_path:(default_socket_path ()) ~ring ~policy ~max_pending_bytes:1_048_576 with
+  | Ok server -> Some server
+  | Error error ->
+      Printf.eprintf "tessera-proxy: observer socket disabled: %s\n%!"
+        (Format.asprintf "%a" Observer_server.pp_error (Err.Error.kind error));
+      None
+
+let run_loop session observer =
   let rec loop () =
-    match Session.select session ~timeout:(-1.0) with
+    let extra_read_fds, extra_write_fds =
+      match observer with
+      | None -> ([], [])
+      | Some server ->
+          (Observer_server.listen_fd server :: Observer_server.read_fds server, Observer_server.write_fds server)
+    in
+    match Session.select session ~extra_read_fds ~extra_write_fds ~timeout:(-1.0) with
     | [] -> loop ()
     | ready ->
         let continue_ = ref true in
@@ -71,15 +97,33 @@ let run_loop session =
           (fun ready ->
             if !continue_ then
               match ready with
-              | Session.Wakeup -> ignore (Session.on_wakeup session)
+              | Session.Wakeup -> (
+                  match Session.on_wakeup session with
+                  | Session.Resized (Session.Loop.Resized outcome) ->
+                      Option.iter (fun server -> Observer_server.note_outcome server outcome) observer
+                  | Session.Resized (Session.Loop.Reported _) -> ()
+                  | _ -> ())
               | Session.Master -> (
                   match Session.on_master_readable session with
-                  | Session.Application_eof _ -> continue_ := false
+                  | Session.Application_eof outcome ->
+                      Option.iter (fun server -> Observer_server.note_outcome server outcome) observer;
+                      continue_ := false
+                  | Session.Application_bytes outcome ->
+                      Option.iter (fun server -> Observer_server.note_outcome server outcome) observer
+                  | Session.Application_ingest_failed _ -> Option.iter Observer_server.drain observer
                   | _ -> ())
               | Session.Terminal_input -> (
                   match Session.on_terminal_readable session with
                   | Session.Terminal_input_eof -> continue_ := false
-                  | _ -> ()))
+                  | Session.Terminal_input_relayed _ -> Option.iter Observer_server.drain observer
+                  | _ -> ())
+              | Session.Extra_read fd -> (
+                  match observer with
+                  | None -> ()
+                  | Some server ->
+                      if fd = Observer_server.listen_fd server then Observer_server.accept server
+                      else Observer_server.on_readable server fd)
+              | Session.Extra_write fd -> Option.iter (fun server -> Observer_server.on_writable server fd) observer)
           ready;
         if !continue_ then loop ()
   in
@@ -104,4 +148,8 @@ let () =
           ~observer_capacity:4096 ~read_buffer_bytes:65536
       with
       | Error error -> die (Format.asprintf "%a" Session.Loop.pp_error error)
-      | Ok session -> run_loop session)
+      | Ok session ->
+          let observer = create_observer_server ~ring:(Session.ring session) ~policy in
+          Fun.protect
+            ~finally:(fun () -> Option.iter Observer_server.close observer)
+            (fun () -> run_loop session observer))

@@ -60,12 +60,16 @@ module Make (Platform : Tessera_proxy_platform.Platform.S) : sig
   (** proxy.md section 2 "Lifecycle re-query points": runs steps 1-4 without an actual wake-up having fired -- used at
       resume after suspension, terminal reattachment, and immediately before resuming a paused relay. *)
 
-  type ready = Wakeup | Fd of Unix.file_descr
+  type ready = Wakeup | Fd of Unix.file_descr | Writable of Unix.file_descr
 
-  val select : t -> other_read_fds:Unix.file_descr list -> timeout:float -> ready list
-  (** proxy.md section 2 "Ordering against child output": selects over {!Platform.resize_wakeup_fd} and
-      [other_read_fds], transparently retrying on [EINTR] from unrelated signals. [Wakeup] is always first in the result
-      when the wake-up descriptor is ready, ahead of any ready [other_read_fds] -- "this favours the geometry that the
-      foreground application is about to use for its SIGWINCH redraw". Remaining ready descriptors, if any, follow in
-      [other_read_fds] order. Empty when [timeout] elapses with nothing ready. *)
+  val select : t -> other_read_fds:Unix.file_descr list -> write_fds:Unix.file_descr list -> timeout:float -> ready list
+  (** proxy.md section 2 "Ordering against child output": selects over {!Platform.resize_wakeup_fd}, [other_read_fds],
+      and (added for the observer socket server, not part of proxy.md's original scope) [write_fds] -- descriptors a
+      caller wants write-readiness for, such as a slow observer client's socket with buffered output pending. Pass [[]]
+      for [write_fds] to select for read readiness only, exactly as before this parameter existed (kept required, not
+      optional, so every call site states its intent rather than silently defaulting). [Writable] entries never affect
+      [Wakeup]/[Fd] ordering; they are appended after every read-ready result. Transparently retries on [EINTR] from
+      unrelated signals. [Wakeup] is always first in the result when the wake-up descriptor is ready, ahead of any ready
+      [other_read_fds] -- "this favours the foreground application is about to use for its SIGWINCH redraw". Remaining
+      ready descriptors, if any, follow in [other_read_fds] order. Empty when [timeout] elapses with nothing ready. *)
 end

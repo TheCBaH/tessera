@@ -7,8 +7,9 @@
   tessera_unix
   tessera_proxy_platform
   tessera_proxy_observer
+  tessera_proxy_protocol
   unix)
- (modules resize_loop session))
+ (modules resize_loop session observer_server))
 
 ; The composition root executable (proxy.md implementation order step 5). Kept as its own stanza,
 ; gated to Linux, since it is the only unit in this package that names the real

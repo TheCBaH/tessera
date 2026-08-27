@@ -142,8 +142,10 @@ let%expect_test "wakeup readiness stays ahead of both application output and ter
     | Session.Wakeup -> Format.pp_print_string ppf "wakeup"
     | Session.Master -> Format.pp_print_string ppf "master"
     | Session.Terminal_input -> Format.pp_print_string ppf "terminal-input"
+    | Session.Extra_read _ -> Format.pp_print_string ppf "extra-read"
+    | Session.Extra_write _ -> Format.pp_print_string ppf "extra-write"
   in
   Format.printf "[%a]@."
     (Format.pp_print_list ~pp_sep:(fun ppf () -> Format.pp_print_string ppf "; ") pp_ready)
-    (Session.select session ~timeout:0.0);
+    (Session.select session ~extra_read_fds:[] ~extra_write_fds:[] ~timeout:0.0);
   [%expect {| [wakeup; master; terminal-input] |}]

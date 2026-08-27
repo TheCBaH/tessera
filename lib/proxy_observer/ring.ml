@@ -16,6 +16,7 @@ let publish t record =
 type cursor = int
 
 let cursor t = t.total
+let cursor_to_int cursor = cursor
 
 type read = Record of Record.t * cursor | Gap of { skipped : int; resume : cursor }
 

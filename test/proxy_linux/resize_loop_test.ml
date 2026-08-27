@@ -86,10 +86,11 @@ let%expect_test "when both the wake-up and child-output descriptors are ready, t
   let master = Fake_platform.master_fd pty in
   Fake_platform.trigger_host_resize pty;
   Fake_platform.push_child_output pty "hello";
-  let ready = Loop.select loop ~other_read_fds:[ master ] ~timeout:1.0 in
+  let ready = Loop.select loop ~other_read_fds:[ master ] ~write_fds:[] ~timeout:1.0 in
   let pp_ready ppf = function
     | Loop.Wakeup -> Format.pp_print_string ppf "wakeup"
     | Loop.Fd _ -> Format.pp_print_string ppf "master"
+    | Loop.Writable _ -> Format.pp_print_string ppf "writable"
   in
   Format.printf "[%a]@." (Format.pp_print_list ~pp_sep:(fun ppf () -> Format.pp_print_string ppf "; ") pp_ready) ready;
   [%expect {| [wakeup; master] |}]
@@ -99,7 +100,7 @@ let%expect_test "with only the child-output descriptor ready, select reports onl
   let pty = Loop.pty loop in
   let master = Fake_platform.master_fd pty in
   Fake_platform.push_child_output pty "hello";
-  let ready = Loop.select loop ~other_read_fds:[ master ] ~timeout:1.0 in
+  let ready = Loop.select loop ~other_read_fds:[ master ] ~write_fds:[] ~timeout:1.0 in
   Format.printf "%d ready@." (List.length ready);
   [%expect {| 1 ready |}]
 

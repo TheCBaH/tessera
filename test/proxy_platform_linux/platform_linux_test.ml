@@ -126,7 +126,7 @@ let () =
      invoking whatever drives physical_winsize/resize_wakeup_fd in the test harness". *)
   or_fail_platform (Result.map ignore (Platform_linux.set_winsize host size_b));
   Unix.kill (Unix.getpid ()) sigwinch;
-  let ready = Loop.select loop ~other_read_fds:[] ~timeout:5.0 in
+  let ready = Loop.select loop ~other_read_fds:[] ~write_fds:[] ~timeout:5.0 in
   check "resize_wakeup_fd becomes ready after a real SIGWINCH to this process" (List.mem Loop.Wakeup ready);
   expect_resized loop ~expected:size_b
     ~label:"a distinct-size requery calls Unix_adapter.resize with the expected geometry";

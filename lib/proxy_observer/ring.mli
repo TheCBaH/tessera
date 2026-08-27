@@ -22,6 +22,12 @@ val cursor : t -> cursor
 (** A cursor starting after every record currently retained -- a fresh observer must resync from
     {!authoritative_snapshot} first, not replay history it never subscribed to. *)
 
+val cursor_to_int : cursor -> int
+(** The wire/log representation of a cursor -- e.g. the position a protocol codec reports alongside an
+    {!authoritative_snapshot}, or an out-of-band gap size a transport computes as the distance between two cursors. A
+    client never turns this back into a {!cursor} that reads this or any other {!t}: release one has no client-supplied
+    resume request. *)
+
 type read =
   | Record of Record.t * cursor
   | Gap of { skipped : int; resume : cursor }

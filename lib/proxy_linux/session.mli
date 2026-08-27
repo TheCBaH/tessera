@@ -50,9 +50,16 @@ module Make (Platform : Tessera_proxy_platform.Platform.S) : sig
       {!Tessera.Effect.observation} emitted. A {!Loop.Reported} diagnostic publishes nothing: it is proxy-internal
       operational reporting, not a core observation. *)
 
-  type ready = Wakeup | Master | Terminal_input
+  type ready = Wakeup | Master | Terminal_input | Extra_read of Unix.file_descr | Extra_write of Unix.file_descr
 
-  val select : t -> timeout:float -> ready list
+  val select :
+    t -> extra_read_fds:Unix.file_descr list -> extra_write_fds:Unix.file_descr list -> timeout:float -> ready list
   (** proxy.md section 2 "Ordering against child output", extended to the third descriptor this session adds: the
-      wake-up descriptor is always ordered first when ready, ahead of both the master and [terminal_in]. *)
+      wake-up descriptor is always ordered first when ready, ahead of both the master and [terminal_in].
+      [extra_read_fds] and [extra_write_fds] (added for the observer socket server, out of proxy.md's original scope;
+      pass [[]] for either when there is nothing extra to watch) fold into the same underlying call so a caller never
+      needs a second, separately-timed [select]: an observer listen socket, a newly connected client's descriptor, or a
+      slow client's socket with buffered output pending can all share this one blocking wait without risking the relay
+      ever being delayed by something an observer client did or didn't do. They report as [Extra_read]/[Extra_write]
+      after [Wakeup]/[Master]/[Terminal_input], read entries before write entries. *)
 end
