@@ -212,3 +212,28 @@ let%expect_test "create restricts both the socket's directory and the socket fil
   [%expect {|
     directory=700 socket=600
     unlinked after close: true |}]
+
+let open_fd_count () = Array.length (Sys.readdir "/proc/self/fd")
+
+let%expect_test "a create that fails after allocating a socket does not leak its descriptor" =
+  let ring = Ring.create ~capacity:64 ~start_position:Record.initial_sequence in
+  let policy = or_fail (policy ()) in
+  (* A directory component that is actually a regular file makes [Unix.bind] fail with [ENOTDIR]
+     only after {!Observer_server.create} has already allocated the listening socket -- exactly the
+     path where a leaked descriptor would otherwise accumulate one per failed attempt. *)
+  let not_a_directory = Filename.temp_file "tessera-proxy-observer-fd-leak" "" in
+  let socket_path = Filename.concat not_a_directory "observer.sock" in
+  let attempts = 50 in
+  let before = open_fd_count () in
+  for _ = 1 to attempts do
+    match Observer_server.create ~socket_path ~ring ~policy ~max_pending_bytes:1024 with
+    | Ok server -> Observer_server.close server
+    | Error error -> (
+        match Err.Error.kind error with
+        | `Bind_failed _ -> ()
+        | other -> failwith (Format.asprintf "unexpected error: %a" Observer_server.pp_error other))
+  done;
+  let after = open_fd_count () in
+  Sys.remove not_a_directory;
+  Format.printf "fd count grew by %d after %d failed create attempts@." (after - before) attempts;
+  [%expect {| fd count grew by 0 after 50 failed create attempts |}]

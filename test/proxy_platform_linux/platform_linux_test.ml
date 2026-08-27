@@ -147,6 +147,20 @@ let () =
   | Some echoed -> check "byte-for-byte relay round-trip over the real PTY pair" (String.equal echoed payload)
   | None -> check "byte-for-byte relay round-trip over the real PTY pair (no echo received)" false);
 
+  (* A column count that would not fit in the C stubs' unsigned-short winsize fields must be rejected
+     as a typed error, not silently truncated into a different, wrong geometry
+     (Tessera_proxy_platform_linux.Platform_linux.check_winsize_field). *)
+  let oversized = winsize 100_000 24 in
+  (match Platform_linux.set_winsize host oversized with
+  | Error _ -> check "set_winsize rejects a column count that would overflow struct winsize's unsigned short" true
+  | Ok () -> check "set_winsize rejects a column count that would overflow struct winsize's unsigned short" false);
+  (match Platform_linux.get_winsize host with
+  | Ok observed ->
+      check "a rejected oversized set_winsize leaves the previously applied geometry untouched"
+        (Foundation.UInt.equal (Winsize.columns observed) (Winsize.columns size_b)
+        && Foundation.UInt.equal (Winsize.rows observed) (Winsize.rows size_b))
+  | Error error -> check (Format.asprintf "get_winsize after rejected resize (%a)" Platform_linux.pp_error error) false);
+
   if !failures > 0 then (
     Printf.printf "%d check(s) failed\n%!" !failures;
     exit 1)

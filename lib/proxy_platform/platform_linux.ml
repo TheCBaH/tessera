@@ -32,12 +32,32 @@ let winsize_of_raw (rows, columns, xpixel, ypixel) =
   in
   Winsize.make ~columns:(must_uint columns) ~rows:(must_uint rows) ~pixels
 
+(* The C stubs store every field in a [struct winsize]'s [unsigned short], so a value outside
+   [0, 0xFFFF] would otherwise be truncated silently (e.g. an out-of-range column count wrapping
+   to a small, wrong one) instead of failing -- exactly the kind of silent geometry corruption
+   terminal-plan.md's resize protocol is designed to avoid. [Foundation.UInt.t] has no upper bound
+   of its own, so this is the boundary that must enforce one. *)
+let winsize_field_max = 0xFFFF
+
+let check_winsize_field name value =
+  if value < 0 || value > winsize_field_max then
+    raise
+      (Unix.Unix_error
+         ( Unix.EINVAL,
+           "winsize",
+           Printf.sprintf "%s=%d exceeds unsigned 16-bit range [0, %d]" name value winsize_field_max ))
+
 let raw_of_winsize winsize =
   let rows = Foundation.UInt.to_int (Winsize.rows winsize) in
   let columns = Foundation.UInt.to_int (Winsize.columns winsize) in
-  match Winsize.pixels winsize with
-  | Some { Winsize.width; height; _ } -> (rows, columns, width, height)
-  | None -> (rows, columns, 0, 0)
+  let xpixel, ypixel =
+    match Winsize.pixels winsize with Some { Winsize.width; height; _ } -> (width, height) | None -> (0, 0)
+  in
+  check_winsize_field "rows" rows;
+  check_winsize_field "columns" columns;
+  check_winsize_field "xpixel" xpixel;
+  check_winsize_field "ypixel" ypixel;
+  (rows, columns, xpixel, ypixel)
 
 let spawn ~argv ~initial_winsize =
   if Array.length argv = 0 then Error Empty_argv

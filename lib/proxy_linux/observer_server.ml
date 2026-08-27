@@ -54,19 +54,30 @@ let create ~socket_path ~ring ~policy ~max_pending_bytes =
   let* fd =
     E.protect ~pos:__POS__
       ~catch:(function Unix.Unix_error (code, _, _) -> Some (`Socket_failed code) | _ -> None)
-      (fun () -> Unix.socket Unix.PF_UNIX Unix.SOCK_STREAM 0)
+      (fun () -> Unix.socket ~cloexec:true Unix.PF_UNIX Unix.SOCK_STREAM 0)
   in
   ignore_unix_error (fun () -> Unix.unlink socket_path);
+  (* Every branch below has already allocated [fd]: a failure here must close it before returning,
+     or a caller that retries {!create} (e.g. across proxy restarts) leaks one descriptor per
+     failed attempt. *)
   let* () =
     E.protect ~pos:__POS__
-      ~catch:(function Unix.Unix_error (code, _, _) -> Some (`Bind_failed code) | _ -> None)
+      ~catch:(function
+        | Unix.Unix_error (code, _, _) ->
+            ignore_unix_error (fun () -> Unix.close fd);
+            Some (`Bind_failed code)
+        | _ -> None)
       (fun () ->
         Unix.bind fd (Unix.ADDR_UNIX socket_path);
         Unix.chmod socket_path 0o600)
   in
   let* () =
     E.protect ~pos:__POS__
-      ~catch:(function Unix.Unix_error (code, _, _) -> Some (`Listen_failed code) | _ -> None)
+      ~catch:(function
+        | Unix.Unix_error (code, _, _) ->
+            ignore_unix_error (fun () -> Unix.close fd);
+            Some (`Listen_failed code)
+        | _ -> None)
       (fun () ->
         Unix.listen fd backlog;
         Unix.set_nonblock fd)
