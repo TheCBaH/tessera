@@ -20,5 +20,11 @@ val locate : term:string -> home:string option -> terminfo:string option -> term
     some installations use for a small set of non-alphanumeric first characters is not implemented. Returns the first
     candidate path that names a regular file, or [None] if every candidate is absent. *)
 
+val max_bytes : int
+(** The largest resource {!read} will allocate for. A real compiled terminfo entry is at most a handful of KiB; this
+    generous cap exists only to bound the allocation against a large or sparse file at an attacker-reachable path
+    ([terminfo]/[home]/[terminfo_dirs] all come from environment variables). *)
+
 val read : string -> (bytes, error) result
-(** Reads the file at the given path into memory in full. *)
+(** Reads the file at the given path into memory in full, or [Error (`Read_failed _)] if it is missing, unreadable, or
+    larger than {!max_bytes}. *)

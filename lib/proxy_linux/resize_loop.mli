@@ -3,8 +3,8 @@
 
 module Make (Platform : Tessera_proxy_platform.Platform.S) : sig
   type t
-  (** The mutable state a live resize loop needs: the platform's [pty], the {!Tessera_unix.Unix_adapter.t} it drives,
-      and the geometry most recently applied to the child. *)
+  (** The mutable state a live resize loop needs: the platform's [pty], the {!Tessera_lwt.Lwt_adapter.t} it drives, and
+      the geometry most recently applied to the child. *)
 
   type diagnostic =
     | Physical_query_failed of Platform.error
@@ -12,16 +12,15 @@ module Make (Platform : Tessera_proxy_platform.Platform.S) : sig
             known values. *)
     | Unmodelled_resize of { columns : Tessera_foundation.UInt.t; rows : Tessera_foundation.UInt.t }
         (** Step 2: the queried size had a zero/invalid row or column. The raw value was still applied to the child PTY
-            when possible, but no {!Tessera_unix.Unix_adapter.resize} call was made. *)
+            when possible, but no {!Tessera_lwt.Lwt_adapter.resize} call was made. *)
     | Set_winsize_failed of Platform.error
-        (** Step 3 (distinct size): applying the new size to the child PTY failed; no
-            {!Tessera_unix.Unix_adapter.resize} call was made either, since the geometry actually reaching the child
-            could not be confirmed. *)
+        (** Step 3 (distinct size): applying the new size to the child PTY failed; no {!Tessera_lwt.Lwt_adapter.resize}
+            call was made either, since the geometry actually reaching the child could not be confirmed. *)
     | Notify_unchanged_failed of Platform.error
         (** Step 3 (same size): re-notifying the child's foreground process group failed; no
-            {!Tessera_unix.Unix_adapter.resize} call was made. *)
-    | Adapter_resize_failed of Tessera_unix.Unix_adapter.error Err.Error.t
-        (** Step 4: the child PTY was updated, but {!Tessera_unix.Unix_adapter.resize} itself failed. *)
+            {!Tessera_lwt.Lwt_adapter.resize} call was made. *)
+    | Adapter_resize_failed of Tessera_lwt.Lwt_adapter.error Err.Error.t
+        (** Step 4: the child PTY was updated, but {!Tessera_lwt.Lwt_adapter.resize} itself failed. *)
 
   type outcome =
     | Resized of Tessera.outcome  (** Step 4 ran and the core accepted the resize. *)
@@ -43,35 +42,27 @@ module Make (Platform : Tessera_proxy_platform.Platform.S) : sig
     (t, error) result
   (** proxy.md section 2 "Startup": queries {!Platform.physical_winsize}, validates it, spawns the child with [env] as
       its environment and that value as [initial_winsize], then creates the adapter with the same validated size. No
-      [Out_of_band (Resize _)] is ingested for the initial size: {!Tessera_unix.Unix_adapter.create} already establishes
-      it. *)
+      [Out_of_band (Resize _)] is ingested for the initial size: {!Tessera_lwt.Lwt_adapter.create} already establishes
+      it. Synchronous in both the platform and the adapter, so this remains an ordinary [result], not an [Lwt.t]. *)
 
   val pty : t -> Platform.pty
-  val adapter : t -> Tessera_unix.Unix_adapter.t
+  val adapter : t -> Tessera_lwt.Lwt_adapter.t
 
   val last_applied : t -> Tessera_proxy_platform.Winsize.t
   (** The raw winsize most recently applied to the child PTY (including pixel metadata, when reported) -- what
       {!Resized} outcomes' geometry, and any {!Tessera_proxy_observer.Record.resize} a caller publishes for one, should
       be derived from. *)
 
-  val on_wakeup : t -> outcome
-  (** proxy.md section 2 "On resize_wakeup_fd readable": drains the wake-up descriptor (reads until it would block),
-      then runs steps 1-4 as {!requery}. *)
+  val wait_for_wakeup : t -> unit Lwt.t
+  (** Resolves once {!Platform.resize_wakeup_fd} is readable. A caller loops this itself (see
+      {!Session.run_resize_loop}) rather than this module driving its own loop, so the exact interleaving against the
+      master/terminal loops is the composition root's decision, not this module's. *)
 
-  val requery : t -> outcome
+  val on_wakeup : t -> outcome Lwt.t
+  (** proxy.md section 2 "On resize_wakeup_fd readable": drains the wake-up descriptor (reads until it would block),
+      then runs steps 1-4 as {!requery}. Call after {!wait_for_wakeup} resolves. *)
+
+  val requery : t -> outcome Lwt.t
   (** proxy.md section 2 "Lifecycle re-query points": runs steps 1-4 without an actual wake-up having fired -- used at
       resume after suspension, terminal reattachment, and immediately before resuming a paused relay. *)
-
-  type ready = Wakeup | Fd of Unix.file_descr | Writable of Unix.file_descr
-
-  val select : t -> other_read_fds:Unix.file_descr list -> write_fds:Unix.file_descr list -> timeout:float -> ready list
-  (** proxy.md section 2 "Ordering against child output": selects over {!Platform.resize_wakeup_fd}, [other_read_fds],
-      and (added for the observer socket server, not part of proxy.md's original scope) [write_fds] -- descriptors a
-      caller wants write-readiness for, such as a slow observer client's socket with buffered output pending. Pass [[]]
-      for [write_fds] to select for read readiness only, exactly as before this parameter existed (kept required, not
-      optional, so every call site states its intent rather than silently defaulting). [Writable] entries never affect
-      [Wakeup]/[Fd] ordering; they are appended after every read-ready result. Transparently retries on [EINTR] from
-      unrelated signals. [Wakeup] is always first in the result when the wake-up descriptor is ready, ahead of any ready
-      [other_read_fds] -- "this favours the foreground application is about to use for its SIGWINCH redraw". Remaining
-      ready descriptors, if any, follow in [other_read_fds] order. Empty when [timeout] elapses with nothing ready. *)
 end

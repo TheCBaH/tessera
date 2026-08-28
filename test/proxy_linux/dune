@@ -20,12 +20,14 @@
   tessera_foundation
   tessera_model
   tessera
-  tessera_unix
+  tessera_lwt
   tessera_proxy_platform
   tessera_proxy_observer
   tessera_proxy_protocol
   tessera_proxy_linux
   tessera_test_proxy_linux_fake_platform
+  lwt
+  lwt.unix
   unix)
  (preprocess
   (pps ppx_expect)))

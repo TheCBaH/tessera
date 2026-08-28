@@ -81,53 +81,29 @@ let create_observer_server ~ring ~policy =
         (Format.asprintf "%a" Observer_server.pp_error (Err.Error.kind error));
       None
 
+(* Each concern (application relay, resize wake-ups, observer connections) is its own independent Lwt task. The
+   relay is the one with a real end -- an EOF on *either* direction ends the session, matching today's behaviour, so
+   it is driven by {!Session.run_relay} rather than joining the two directions (which would wait for both and can
+   hang indefinitely, e.g. when a child exits while the real terminal stays open). The resize and observer loops
+   have no EOF of their own, so they run until [stop] resolves, which happens the instant the relay does. *)
 let run_loop session observer =
-  let rec loop () =
-    let extra_read_fds, extra_write_fds =
-      match observer with
-      | None -> ([], [])
-      | Some server ->
-          (Observer_server.listen_fd server :: Observer_server.read_fds server, Observer_server.write_fds server)
-    in
-    match Session.select session ~extra_read_fds ~extra_write_fds ~timeout:(-1.0) with
-    | [] -> loop ()
-    | ready ->
-        let continue_ = ref true in
-        List.iter
-          (fun ready ->
-            if !continue_ then
-              match ready with
-              | Session.Wakeup -> (
-                  match Session.on_wakeup session with
-                  | Session.Resized (Session.Loop.Resized outcome) ->
-                      Option.iter (fun server -> Observer_server.note_outcome server outcome) observer
-                  | Session.Resized (Session.Loop.Reported _) -> ()
-                  | _ -> ())
-              | Session.Master -> (
-                  match Session.on_master_readable session with
-                  | Session.Application_eof outcome ->
-                      Option.iter (fun server -> Observer_server.note_outcome server outcome) observer;
-                      continue_ := false
-                  | Session.Application_bytes outcome ->
-                      Option.iter (fun server -> Observer_server.note_outcome server outcome) observer
-                  | Session.Application_ingest_failed _ -> Option.iter Observer_server.drain observer
-                  | _ -> ())
-              | Session.Terminal_input -> (
-                  match Session.on_terminal_readable session with
-                  | Session.Terminal_input_eof -> continue_ := false
-                  | Session.Terminal_input_relayed _ -> Option.iter Observer_server.drain observer
-                  | _ -> ())
-              | Session.Extra_read fd -> (
-                  match observer with
-                  | None -> ()
-                  | Some server ->
-                      if fd = Observer_server.listen_fd server then Observer_server.accept server
-                      else Observer_server.on_readable server fd)
-              | Session.Extra_write fd -> Option.iter (fun server -> Observer_server.on_writable server fd) observer)
-          ready;
-        if !continue_ then loop ()
+  let on_event = function
+    | Session.Resized (Session.Loop.Resized outcome) ->
+        Option.iter (fun server -> Observer_server.note_outcome server outcome) observer
+    | Session.Resized (Session.Loop.Reported _) -> ()
+    | Session.Application_eof outcome | Session.Application_bytes outcome ->
+        Option.iter (fun server -> Observer_server.note_outcome server outcome) observer
+    | Session.Application_ingest_failed _ -> Option.iter Observer_server.drain observer
+    | Session.Terminal_input_relayed _ -> Option.iter Observer_server.drain observer
+    | Session.Terminal_input_eof -> ()
   in
-  loop ()
+  let stop, wake_stop = Lwt.wait () in
+  let resize_task = Session.run_resize_loop session ~on_event ~stop in
+  let observer_task = match observer with Some server -> Observer_server.run server ~stop | None -> stop in
+  Lwt_main.run
+    (Lwt.bind (Session.run_relay session ~on_event) (fun () ->
+         Lwt.wakeup_later wake_stop ();
+         Lwt.join [ resize_task; observer_task ]))
 
 (* terminal-idea.md "Terminal descriptions and terminfo": discover and parse the host's own declared terminal type,
    or fall back to the bundled xterm-256color definition and advertise that fallback to the PTY-side application by
@@ -136,11 +112,7 @@ let run_loop session observer =
    prints a startup diagnostic there -- a message on that shared terminal would be indistinguishable from the child's
    own output and would corrupt the very transparency this proxy exists to preserve. *)
 let select_terminal ~policy =
-  let terminfo_dirs =
-    match Sys.getenv_opt "TERMINFO_DIRS" with
-    | None -> []
-    | Some value -> String.split_on_char ':' value |> List.filter (fun dir -> dir <> "")
-  in
+  let terminfo_dirs = Tessera_proxy_linux.Terminal_selection.terminfo_dirs_of_env (Sys.getenv_opt "TERMINFO_DIRS") in
   Tessera_proxy_linux.Terminal_selection.select ~policy ~term:(Sys.getenv_opt "TERM")
     ~locate:(fun ~term ->
       Tessera_proxy_platform.Terminfo_resource.locate ~term ~home:(Sys.getenv_opt "HOME")

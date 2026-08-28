@@ -4,10 +4,12 @@
  (libraries
   tessera
   tessera_foundation
-  tessera_unix
+  tessera_lwt
   tessera_proxy_platform
   tessera_proxy_observer
   tessera_proxy_protocol
+  lwt
+  lwt.unix
   unix)
  (modules resize_loop session observer_server checkpoint terminal_selection))
 
@@ -26,6 +28,8 @@
   tessera_proxy_observer
   tessera_proxy_platform
   tessera_proxy_platform_linux
+  lwt
+  lwt.unix
   unix)
  (enabled_if
   (= %{system} linux)))

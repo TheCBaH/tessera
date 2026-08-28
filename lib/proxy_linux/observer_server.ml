@@ -27,10 +27,18 @@ let ( let* ) = Result.bind
    needed) from "was streaming, now needs to resynchronise" (a [Gap] frame must precede the fresh snapshot) from the
    ordinary flowing state. *)
 type client_state = Fresh | Resyncing of { skipped : int } | Streaming of Observer.Ring.cursor
-type client = { fd : Unix.file_descr; pending : Buffer.t; mutable state : client_state }
+
+type client = {
+  fd : Lwt_unix.file_descr;
+  pending : Buffer.t;
+  wake : unit Lwt_condition.t;  (** Signalled whenever [pending] gains bytes, so the writer task wakes and drains it. *)
+  mutable state : client_state;
+  mutable alive : bool;
+}
 
 type t = {
   listen_fd : Unix.file_descr;
+  listen_lwt : Lwt_unix.file_descr;
   socket_path : string;
   ring : Observer.Ring.t;
   authority : Protocol.Authority.t;
@@ -41,6 +49,12 @@ type t = {
 
 let backlog = 16
 let ignore_unix_error thunk = try thunk () with Unix.Unix_error (_, _, _) -> ()
+
+(* Catches everything, not just the specific exceptions a caller happens to anticipate: a client's fd can be closed
+   from several independent places (this client's own reader task, its writer task, or {!close} tearing down every
+   client at once), so a "the other side got there first and this operation now targets an already-closed channel"
+   race is a normal outcome here, not a bug to enumerate exceptions for. *)
+let close_client_fd client = Lwt.catch (fun () -> Lwt_unix.close client.fd) (fun _exn -> Lwt.return_unit)
 
 let create ~socket_path ~ring ~policy ~max_pending_bytes =
   let directory = Filename.dirname socket_path in
@@ -85,6 +99,7 @@ let create ~socket_path ~ring ~policy ~max_pending_bytes =
   Ok
     {
       listen_fd = fd;
+      listen_lwt = Lwt_unix.of_unix_file_descr ~blocking:false fd;
       socket_path;
       ring;
       authority = Protocol.Authority.make ~policy;
@@ -93,19 +108,17 @@ let create ~socket_path ~ring ~policy ~max_pending_bytes =
       latest_outcome = None;
     }
 
-let listen_fd t = t.listen_fd
-let read_fds t = List.map (fun client -> client.fd) t.clients
-
-let write_fds t =
-  List.filter_map (fun client -> if Buffer.length client.pending > 0 then Some client.fd else None) t.clients
-
 let client_count t = List.length t.clients
 
-let remove_client t fd =
-  (match List.find_opt (fun client -> client.fd = fd) t.clients with
-  | None -> ()
-  | Some client -> ignore_unix_error (fun () -> Unix.close client.fd));
-  t.clients <- List.filter (fun client -> client.fd <> fd) t.clients
+(* Only flips [alive]/unlists the client and wakes its writer -- it never itself awaits {!close_client_fd}, so every
+   caller (the reader task, the writer task, or {!close}) closes the descriptor as part of its own already-running
+   async chain instead of a detached fire-and-forget task, which could otherwise be abandoned before ever getting a
+   turn to run (nothing would then be driving the scheduler to complete it). *)
+let remove_client t client =
+  if client.alive then (
+    client.alive <- false;
+    t.clients <- List.filter (fun c -> c != client) t.clients;
+    Lwt_condition.signal client.wake ())
 
 let send_snapshot t client outcome =
   let position = Observer.Ring.cursor_to_int (Observer.Ring.cursor t.ring) in
@@ -115,8 +128,12 @@ let send_snapshot t client outcome =
 
 (* Runs once per client per {!drain}/{!note_outcome}/{!accept} call: advances a [Streaming] client as far as the ring
    and [max_pending_bytes] allow, resolves a [Fresh]/[Resyncing] client into [Streaming] as soon as an outcome is on
-   hand, and never writes a single byte to the socket itself -- {!flush} does that, so this function can never
-   block. *)
+   hand, and never writes a single byte to the socket itself -- the client's own writer task (woken via [wake]) does
+   that, so this function can never block. Deliberately never signals [wake] itself: {!Lwt_condition.signal} runs its
+   waiter synchronously, and a signal from partway through this recursion would let the writer task drain
+   [client.pending] out from under the very byte-count check below it, defeating the whole [max_pending_bytes] policy
+   (a burst would then observe many small flushes instead of one bounded batch followed by a gap). {!service_all}
+   signals once, after this settles. *)
 let rec advance t client =
   match client.state with
   | Fresh -> ( match t.latest_outcome with None -> () | Some outcome -> send_snapshot t client outcome)
@@ -147,28 +164,11 @@ let rec advance t client =
             client.state <- Streaming next_cursor;
             advance t client))
 
-(* Flushes as much of [client.pending] as one non-blocking write accepts. A hard failure (anything but
-   [EAGAIN]/[EWOULDBLOCK]/[EINTR] -- most commonly [EPIPE]/[ECONNRESET] once the peer has gone away) removes the
-   client rather than leaving a dead descriptor accumulating an ever-growing buffer forever. *)
-let flush t client =
-  let pending_length = Buffer.length client.pending in
-  if pending_length > 0 then
-    match Unix.write client.fd (Buffer.to_bytes client.pending) 0 pending_length with
-    | written ->
-        let leftover = Buffer.to_bytes client.pending in
-        Buffer.clear client.pending;
-        if written < pending_length then Buffer.add_subbytes client.pending leftover written (pending_length - written)
-    | exception Unix.Unix_error ((Unix.EAGAIN | Unix.EWOULDBLOCK | Unix.EINTR), _, _) -> ()
-    | exception Unix.Unix_error (_, _, _) -> remove_client t client.fd
-
 let service_all t =
-  (* [advance]/[flush] can call {!remove_client}, which mutates [t.clients]; iterate over a snapshot list so removal
-     during the walk never skips or revisits an entry. *)
   List.iter
     (fun client ->
-      if List.memq client t.clients then (
-        advance t client;
-        flush t client))
+      advance t client;
+      if Buffer.length client.pending > 0 then Lwt_condition.signal client.wake ())
     t.clients
 
 let note_outcome t outcome =
@@ -177,48 +177,101 @@ let note_outcome t outcome =
 
 let drain t = service_all t
 
+(* One per connected client: drains [client.pending] via non-blocking {!Lwt_unix.write}, waiting on {!wake} whenever
+   there is nothing to send. A hard failure (anything but the transient conditions {!Lwt_unix.write} already retries
+   internally -- most commonly [EPIPE]/[ECONNRESET] once the peer has gone away, or a race against another task
+   already closing this same client) removes the client rather than leaving a dead descriptor accumulating an
+   ever-growing buffer forever. *)
+let rec writer_loop t client =
+  if not client.alive then Lwt.return_unit
+  else if Buffer.length client.pending = 0 then
+    Lwt.bind (Lwt_condition.wait client.wake) (fun () -> writer_loop t client)
+  else
+    let chunk = Buffer.to_bytes client.pending in
+    Buffer.clear client.pending;
+    let rec write_all offset =
+      if offset < Bytes.length chunk then
+        Lwt.bind
+          (Lwt_unix.write client.fd chunk offset (Bytes.length chunk - offset))
+          (fun written -> write_all (offset + written))
+      else Lwt.return_unit
+    in
+    Lwt.bind
+      (Lwt.catch (fun () -> Lwt.map (fun () -> true) (write_all 0)) (fun _exn -> Lwt.return_false))
+      (fun ok ->
+        if ok then writer_loop t client
+        else (
+          remove_client t client;
+          close_client_fd client))
+
+(* release one: a read-only client sending bytes at all is a protocol violation; discard them without acting on them,
+   and treat only EOF/a hard read error (including the same close race {!writer_loop} guards against) as this client
+   going away. *)
+let reader_loop t client =
+  let buffer = Bytes.create 256 in
+  let rec loop () =
+    if not client.alive then Lwt.return_unit
+    else
+      Lwt.bind
+        (Lwt.catch
+           (fun () -> Lwt.map Result.ok (Lwt_unix.read client.fd buffer 0 (Bytes.length buffer)))
+           (fun _exn -> Lwt.return (Error ())))
+        (function
+          | Error () | Ok 0 ->
+              remove_client t client;
+              close_client_fd client
+          | Ok _ -> loop ())
+  in
+  loop ()
+
 let accept t =
   let rec loop () =
     match Unix.accept ~cloexec:true t.listen_fd with
     | fd, _ ->
         Unix.set_nonblock fd;
-        let client = { fd; pending = Buffer.create 256; state = Fresh } in
+        let client =
+          {
+            fd = Lwt_unix.of_unix_file_descr ~blocking:false fd;
+            pending = Buffer.create 256;
+            wake = Lwt_condition.create ();
+            state = Fresh;
+            alive = true;
+          }
+        in
         Protocol.write_preamble client.pending;
         t.clients <- client :: t.clients;
         advance t client;
-        flush t client;
+        if Buffer.length client.pending > 0 then Lwt_condition.signal client.wake ();
+        Lwt.async (fun () -> writer_loop t client);
+        Lwt.async (fun () -> reader_loop t client);
         loop ()
     | exception Unix.Unix_error ((Unix.EAGAIN | Unix.EWOULDBLOCK), _, _) -> ()
     | exception Unix.Unix_error (Unix.EINTR, _, _) -> loop ()
   in
   loop ()
 
-let on_readable t fd =
-  if List.exists (fun client -> client.fd = fd) t.clients then
-    let buffer = Bytes.create 256 in
-    (* release one: a read-only client sending bytes at all is a protocol violation; discard them without acting on
-       them, and treat only EOF/a hard read error as this client going away. *)
-    let rec drain_readable () =
-      match Unix.read fd buffer 0 (Bytes.length buffer) with
-      | 0 -> remove_client t fd
-      | _ -> drain_readable ()
-      | exception Unix.Unix_error ((Unix.EAGAIN | Unix.EWOULDBLOCK), _, _) -> ()
-      | exception Unix.Unix_error (Unix.EINTR, _, _) -> drain_readable ()
-      | exception Unix.Unix_error (_, _, _) -> remove_client t fd
-    in
-    drain_readable ()
-
-let on_writable t fd =
-  match List.find_opt (fun client -> client.fd = fd) t.clients with
-  | None -> ()
-  | Some client ->
-      flush t client;
-      if List.memq client t.clients then (
-        advance t client;
-        flush t client)
+(* Watches the listen socket and accepts every pending connection until [stop] resolves -- the composition root
+   signals that once the proxy's relay has ended. Mirrors {!Session.run_resize_loop}'s stop-signal shape rather than
+   an EOF of its own, since a listen socket has no EOF. *)
+let rec run t ~stop =
+  Lwt.bind
+    (Lwt.pick [ Lwt.map (fun () -> `Readable) (Lwt_unix.wait_read t.listen_lwt); Lwt.map (fun () -> `Stop) stop ])
+    (function
+      | `Stop -> Lwt.return_unit
+      | `Readable ->
+          accept t;
+          run t ~stop)
 
 let close t =
-  ignore_unix_error (fun () -> Unix.close t.listen_fd);
-  List.iter (fun client -> ignore_unix_error (fun () -> Unix.close client.fd)) t.clients;
-  t.clients <- [];
-  ignore_unix_error (fun () -> Unix.unlink t.socket_path)
+  Lwt_main.run
+    (let clients = t.clients in
+     t.clients <- [];
+     List.iter (fun client -> client.alive <- false) clients;
+     Lwt.bind
+       (Lwt.join (List.map close_client_fd clients))
+       (fun () ->
+         Lwt.bind
+           (Lwt.catch (fun () -> Lwt_unix.close t.listen_lwt) (fun _exn -> Lwt.return_unit))
+           (fun () ->
+             ignore_unix_error (fun () -> Unix.unlink t.socket_path);
+             Lwt.return_unit)))

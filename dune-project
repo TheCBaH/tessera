@@ -85,12 +85,13 @@
  (name tessera_proxy_linux)
  (synopsis "Linux terminal proxy composition root for Tessera")
  (description
-  "Wires Tessera_unix.Unix_adapter, Tessera_proxy_platform, Tessera_proxy_observer, and Tessera_proxy_protocol's socket server into a proxy session and the tessera-proxy executable.")
+  "Wires Tessera_lwt.Lwt_adapter, Tessera_proxy_platform, Tessera_proxy_observer, and Tessera_proxy_protocol's socket server into an Lwt-driven proxy session and the tessera-proxy executable.")
  (license MIT)
  (depends
   tessera
-  tessera_unix
+  tessera_lwt
   tessera_proxy_platform
   tessera_proxy_observer
   tessera_proxy_protocol
+  lwt
   (ocaml (>= 4.14))))

@@ -3,14 +3,19 @@ module Foundation = Tessera_foundation
 module Make (Platform : Tessera_proxy_platform.Platform.S) = struct
   module Winsize = Tessera_proxy_platform.Winsize
 
-  type t = { pty : Platform.pty; adapter : Tessera_unix.Unix_adapter.t; mutable last_applied : Winsize.t }
+  type t = {
+    pty : Platform.pty;
+    adapter : Tessera_lwt.Lwt_adapter.t;
+    mutable last_applied : Winsize.t;
+    wakeup_fd : Lwt_unix.file_descr;
+  }
 
   type diagnostic =
     | Physical_query_failed of Platform.error
     | Unmodelled_resize of { columns : Foundation.UInt.t; rows : Foundation.UInt.t }
     | Set_winsize_failed of Platform.error
     | Notify_unchanged_failed of Platform.error
-    | Adapter_resize_failed of Tessera_unix.Unix_adapter.error Err.Error.t
+    | Adapter_resize_failed of Tessera_lwt.Lwt_adapter.error Err.Error.t
 
   type outcome = Resized of Tessera.outcome | Reported of diagnostic
 
@@ -26,7 +31,7 @@ module Make (Platform : Tessera_proxy_platform.Platform.S) = struct
     | Set_winsize_failed error -> Format.fprintf ppf "set-winsize-failed(%a)" Platform.pp_error error
     | Notify_unchanged_failed error -> Format.fprintf ppf "notify-unchanged-failed(%a)" Platform.pp_error error
     | Adapter_resize_failed error ->
-        Format.fprintf ppf "adapter-resize-failed(%a)" (Err.Error.pp_kind Tessera_unix.Unix_adapter.pp_error) error
+        Format.fprintf ppf "adapter-resize-failed(%a)" (Err.Error.pp_kind Tessera_lwt.Lwt_adapter.pp_error) error
 
   let pp_error ppf = function
     | `Initial_query_failed error -> Format.fprintf ppf "initial-query-failed(%a)" Platform.pp_error error
@@ -44,8 +49,9 @@ module Make (Platform : Tessera_proxy_platform.Platform.S) = struct
             match Platform.spawn ~argv ~env ~initial_winsize:raw with
             | Error error -> Error (`Spawn_failed error)
             | Ok pty ->
-                let adapter = Tessera_unix.Unix_adapter.create ~lineage_id ~policy ~size in
-                Ok { pty; adapter; last_applied = raw }))
+                let adapter = Tessera_lwt.Lwt_adapter.create ~lineage_id ~policy ~size in
+                let wakeup_fd = Lwt_unix.of_unix_file_descr ~blocking:false (Platform.resize_wakeup_fd pty) in
+                Ok { pty; adapter; last_applied = raw; wakeup_fd }))
 
   let pty t = t.pty
   let adapter t = t.adapter
@@ -57,58 +63,43 @@ module Make (Platform : Tessera_proxy_platform.Platform.S) = struct
      geometry actually reached the child PTY, we do not tell the core it changed either. *)
   let requery t =
     match Platform.physical_winsize () with
-    | Error error -> Reported (Physical_query_failed error)
+    | Error error -> Lwt.return (Reported (Physical_query_failed error))
     | Ok raw -> (
         match Winsize.size raw with
         | Error _ -> (
             match Platform.set_winsize t.pty raw with
-            | Error error -> Reported (Set_winsize_failed error)
+            | Error error -> Lwt.return (Reported (Set_winsize_failed error))
             | Ok () ->
                 t.last_applied <- raw;
-                Reported (Unmodelled_resize { columns = Winsize.columns raw; rows = Winsize.rows raw }))
+                Lwt.return (Reported (Unmodelled_resize { columns = Winsize.columns raw; rows = Winsize.rows raw })))
         | Ok size -> (
             let distinct = not (Winsize.same_geometry raw t.last_applied) in
             let applied =
               if distinct then Platform.set_winsize t.pty raw else Platform.notify_unchanged_winsize t.pty
             in
             match applied with
-            | Error error -> Reported (if distinct then Set_winsize_failed error else Notify_unchanged_failed error)
-            | Ok () -> (
+            | Error error ->
+                Lwt.return (Reported (if distinct then Set_winsize_failed error else Notify_unchanged_failed error))
+            | Ok () ->
                 t.last_applied <- raw;
                 let columns = Foundation.UInt.to_int (Foundation.Types.Size.columns size) in
                 let rows = Foundation.UInt.to_int (Foundation.Types.Size.rows size) in
-                match Tessera_unix.Unix_adapter.resize t.adapter ~columns ~rows with
-                | Error error -> Reported (Adapter_resize_failed error)
-                | Ok outcome -> Resized outcome)))
+                Lwt.map
+                  (function Error error -> Reported (Adapter_resize_failed error) | Ok outcome -> Resized outcome)
+                  (Tessera_lwt.Lwt_adapter.resize t.adapter ~columns ~rows)))
 
+  (* Drains every byte currently buffered on [wakeup_fd] without ever waiting for a future one: {!Lwt_unix.readable}
+     is a non-blocking poll (unlike {!Lwt_unix.read}, which would suspend until more data arrives once the buffer is
+     empty), so this loop stops the instant the descriptor has nothing left to offer right now. *)
   let drain t =
-    let fd = Platform.resize_wakeup_fd t.pty in
     let buffer = Bytes.create 256 in
     let rec loop () =
-      match Unix.read fd buffer 0 (Bytes.length buffer) with
-      | 0 -> ()
-      | _ -> loop ()
-      | exception Unix.Unix_error ((Unix.EAGAIN | Unix.EWOULDBLOCK), _, _) -> ()
-      | exception Unix.Unix_error (Unix.EINTR, _, _) -> loop ()
+      if Lwt_unix.readable t.wakeup_fd then
+        Lwt.bind (Lwt_unix.read t.wakeup_fd buffer 0 (Bytes.length buffer)) (fun _count -> loop ())
+      else Lwt.return_unit
     in
     loop ()
 
-  let on_wakeup t =
-    drain t;
-    requery t
-
-  type ready = Wakeup | Fd of Unix.file_descr | Writable of Unix.file_descr
-
-  let rec select_rw read_fds write_fds timeout =
-    try Unix.select read_fds write_fds [] timeout
-    with Unix.Unix_error (Unix.EINTR, _, _) -> select_rw read_fds write_fds timeout
-
-  let select t ~other_read_fds ~write_fds ~timeout =
-    let wakeup_fd = Platform.resize_wakeup_fd t.pty in
-    let ready_read_fds, ready_write_fds, _ = select_rw (wakeup_fd :: other_read_fds) write_fds timeout in
-    let wakeup_ready = List.mem wakeup_fd ready_read_fds in
-    let other_ready = List.filter (fun fd -> List.mem fd ready_read_fds) other_read_fds in
-    (if wakeup_ready then [ Wakeup ] else [])
-    @ List.map (fun fd -> Fd fd) other_ready
-    @ List.map (fun fd -> Writable fd) ready_write_fds
+  let on_wakeup t = Lwt.bind (drain t) (fun () -> requery t)
+  let wait_for_wakeup t = Lwt_unix.wait_read t.wakeup_fd
 end

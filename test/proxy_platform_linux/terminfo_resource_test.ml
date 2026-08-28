@@ -88,3 +88,29 @@ let%expect_test "read reports a typed error for a missing file" =
       | Ok _ -> print_endline "unexpectedly ok"
       | Error (`Read_failed _) -> print_endline "read-failed");
   [%expect {| read-failed |}]
+
+(* lwt-review.md P2: [terminfo]/[home]/[terminfo_dirs] are all env-var-controlled, so a candidate path can name a
+   sparse regular file whose apparent [fstat] size is far larger than the disk space it actually occupies. This must
+   be rejected as a typed [Read_failed] before the corresponding allocation is attempted, not merely "eventually" --
+   a real oversized allocation here is exactly the failure mode this test rules out. *)
+let%expect_test "read rejects a sparse file whose apparent length exceeds the resource size cap" =
+  with_root (fun terminfo_root ->
+      let path = Filename.concat terminfo_root "huge" in
+      let channel = open_out_bin path in
+      close_out channel;
+      Unix.LargeFile.truncate path (Int64.of_int (Resource.max_bytes + 1));
+      match Resource.read path with
+      | Ok _ -> print_endline "unexpectedly ok"
+      | Error (`Read_failed _) -> print_endline "read-failed");
+  [%expect {| read-failed |}]
+
+let%expect_test "read still accepts a file exactly at the resource size cap" =
+  with_root (fun terminfo_root ->
+      let path = Filename.concat terminfo_root "at-cap" in
+      let channel = open_out_bin path in
+      close_out channel;
+      Unix.LargeFile.truncate path (Int64.of_int Resource.max_bytes);
+      match Resource.read path with
+      | Ok bytes -> Format.printf "%b@." (Bytes.length bytes = Resource.max_bytes)
+      | Error error -> Format.printf "unexpected error: %a@." Resource.pp_error error);
+  [%expect {| true |}]

@@ -182,7 +182,7 @@ let%expect_test "a stalled, non-reading observer client never delays or corrupts
   let total_relayed = ref 0 in
   for _ = 1 to 40 do
     Fake_platform.push_child_bytes pty (Bytes.of_string chunk);
-    (match Session.on_master_readable session with
+    (match Lwt_main.run (Session.on_master_readable session) with
     | Session.Application_bytes outcome -> Observer_server.note_outcome server outcome
     | _ -> failwith "expected application bytes");
     let relayed = Bytes.create (String.length chunk) in

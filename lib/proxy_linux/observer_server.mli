@@ -12,11 +12,20 @@
     socket path at all requires search (execute) permission on every containing directory, so a [0o700] directory
     already limits [connect] to the same user (or root) without needing [SO_PEERCRED]/[getsockopt] -- this is the same
     trust model `ssh-agent` and `tmux` already use for their own control sockets, and it needs no new C stub (this
-    package only links plain [Unix], unlike [tessera_proxy_platform], which is the one package permitted C stubs per
-    proxy.md's package layout). Peer-credential checking via [SO_PEERCRED] would be strictly stronger (it would also
+    package only links plain [Unix]/[Lwt], unlike [tessera_proxy_platform], which is the one package permitted C stubs
+    per proxy.md's package layout). Peer-credential checking via [SO_PEERCRED] would be strictly stronger (it would also
     reject a same-user process that somehow reached the path through a bind-mount or a shared, wrongly-permissioned
     parent directory), but it needs a C stub this increment does not introduce; it is a documented, deliberate scope
-    decision, not an oversight, and a natural follow-on hardening step. *)
+    decision, not an oversight, and a natural follow-on hardening step.
+
+    {2 Concurrency model}
+
+    Every connected client owns two independent Lwt tasks -- a reader (discards whatever a read-only client sends, per
+    the contract below) and a writer (drains that client's own pending-bytes buffer via non-blocking writes, woken
+    whenever {!note_outcome}/{!drain}/{!accept} add to it) -- rather than the caller polling a read-fd-set/write-fd-set
+    through a shared [select]. {!note_outcome}, {!drain}, and {!accept} stay synchronous and never block: they only ever
+    append to an in-memory per-client buffer (or decide, per the [max_pending_bytes] policy below, to reset it to a
+    {!Protocol.Gap} instead of growing it), never perform a socket write themselves. *)
 
 type error =
   [ `Bind_failed of Unix.error
@@ -55,35 +64,21 @@ val drain : t -> unit
     caller makes that {!note_outcome} does not already cover -- terminal-to-application traffic, in particular, has no
     accompanying {!Tessera.outcome}. Never blocks. *)
 
-val listen_fd : t -> Unix.file_descr
-(** Include in a caller's read-fd set: becomes readable when a new client is waiting in [accept]'s backlog. *)
-
-val read_fds : t -> Unix.file_descr list
-(** Every connected client's descriptor, so the caller's [select] can detect a client closing its end (a read returning
-    [0]) or, per the read-only contract, discard any unexpected client-sent bytes without ever acting on them. Does not
-    include {!listen_fd}. *)
-
-val write_fds : t -> Unix.file_descr list
-(** Only the connected clients that currently have buffered, not-yet-written output -- a caller should poll for
-    write-readiness on exactly this set, not on every client, so an idle, fully-flushed client never wastes a [select]
-    cycle. *)
-
 val accept : t -> unit
-(** Call when {!listen_fd} is readable. Accepts every pending connection (non-blocking; stops at [EAGAIN]), sets each
-    new client socket non-blocking, and immediately attempts to send a snapshot if {!note_outcome} has already recorded
-    one -- otherwise the client is queued and receives its first snapshot as soon as one is available. Never blocks. *)
+(** Call when a caller (typically {!run}) has observed the listen socket readable. Accepts every pending connection
+    (non-blocking; stops at [EAGAIN]), and for each spawns its reader/writer Lwt tasks and immediately attempts to send
+    a snapshot if {!note_outcome} has already recorded one -- otherwise the client is queued and receives its first
+    snapshot as soon as one is available. Never blocks. *)
 
-val on_readable : t -> Unix.file_descr -> unit
-(** Call when one of {!read_fds} is readable. A [0]-byte read closes and forgets that client. Any other bytes read are a
-    release-one protocol violation from a read-only client and are silently discarded, per this module's documented
-    no-client-input contract -- never acted on, never relayed, never fed back into the ring or the core. *)
-
-val on_writable : t -> Unix.file_descr -> unit
-(** Call when one of {!write_fds} is writable. Flushes as much buffered output as a single non-blocking write accepts;
-    never blocks, never raises on [EAGAIN]. *)
+val run : t -> stop:unit Lwt.t -> unit Lwt.t
+(** Watches the listen socket and calls {!accept} whenever it is readable, until [stop] resolves. Pass a promise the
+    composition root resolves once the proxy's relay (master/terminal loops) has ended the session -- a listen socket
+    has no EOF of its own to terminate on, mirroring {!Session.run_resize_loop}'s [stop] parameter. *)
 
 val client_count : t -> int
 (** For diagnostics/tests only. *)
 
 val close : t -> unit
-(** Closes the listen socket and every connected client, and unlinks {!create}'s [socket_path]. Idempotent. *)
+(** Closes the listen socket and every connected client (waiting for each close to actually complete), and unlinks
+    {!create}'s [socket_path]. Idempotent. Synchronous: runs its own short-lived Lwt scheduler turn internally, so it is
+    safe to call after an outer {!Lwt_main.run} (e.g. {!Session.run_master_loop}'s driver) has already returned. *)

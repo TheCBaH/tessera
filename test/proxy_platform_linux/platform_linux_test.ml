@@ -87,7 +87,7 @@ let expect_winsize_line fd ~expected ~label =
   | None -> check (label ^ " (no line received)") false
 
 let expect_resized loop ~expected ~label =
-  match Loop.on_wakeup loop with
+  match Lwt_main.run (Loop.on_wakeup loop) with
   | Loop.Resized outcome -> (
       match Tessera.Patch.size (Tessera.outcome_patch outcome) with
       | Tessera.Patch.Set size ->
@@ -137,10 +137,14 @@ let () =
      invoking whatever drives physical_winsize/resize_wakeup_fd in the test harness". *)
   or_fail_platform (Result.map ignore (Platform_linux.set_winsize host size_b));
   Unix.kill (Unix.getpid ()) sigwinch;
-  let ready = Loop.select loop ~other_read_fds:[] ~write_fds:[] ~timeout:5.0 in
-  check "resize_wakeup_fd becomes ready after a real SIGWINCH to this process" (List.mem Loop.Wakeup ready);
+  let became_ready =
+    Lwt_main.run
+      (Lwt.pick
+         [ Lwt.map (fun () -> true) (Loop.wait_for_wakeup loop); Lwt.map (fun () -> false) (Lwt_unix.sleep 5.0) ])
+  in
+  check "resize_wakeup_fd becomes ready after a real SIGWINCH to this process" became_ready;
   expect_resized loop ~expected:size_b
-    ~label:"a distinct-size requery calls Unix_adapter.resize with the expected geometry";
+    ~label:"a distinct-size requery calls Lwt_adapter.resize with the expected geometry";
   expect_winsize_line child_master ~expected:size_b
     ~label:"the child observes a real SIGWINCH after set_winsize (distinct size)";
 
@@ -148,7 +152,7 @@ let () =
      which still delivers a real SIGWINCH to the child directly (TIOCSWINSZ alone would not). *)
   Unix.kill (Unix.getpid ()) sigwinch;
   expect_resized loop ~expected:size_b
-    ~label:"a same-size requery also calls Unix_adapter.resize (full-projection refresh)";
+    ~label:"a same-size requery also calls Lwt_adapter.resize (full-projection refresh)";
   expect_winsize_line child_master ~expected:size_b
     ~label:"the child observes a real SIGWINCH from notify_unchanged_winsize (same size)";
 

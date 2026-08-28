@@ -47,6 +47,9 @@ let finish_locked t =
   t.session <- Tessera.session outcome;
   Ok outcome
 
+let ingest_slice t slice = with_lock t (fun () -> ingest_locked t (Tessera.Bytes slice))
+let finish t = with_lock t (fun () -> finish_locked t)
+
 let resize t ~columns ~rows =
   with_lock t (fun () ->
       let* columns = E.map_error ~pos:__POS__ (fun error -> `Invalid_count error) (Foundation.UInt.of_int columns) in
@@ -74,15 +77,12 @@ let read_step t descriptor buffer =
          | exn -> Lwt.reraise exn))
     (function
       | Error _ as error -> Lwt.return error
-      | Ok bytes_read ->
-          with_lock t (fun () ->
-              if bytes_read = 0 then
-                let* outcome = finish_locked t in
-                Ok (Eof outcome)
-              else
-                let* chunk = build_slice buffer bytes_read in
-                let* outcome = ingest_locked t (Tessera.Bytes chunk) in
-                Ok (Chunk outcome)))
+      | Ok bytes_read -> (
+          if bytes_read = 0 then Lwt.map (Result.map (fun outcome -> Eof outcome)) (finish t)
+          else
+            match build_slice buffer bytes_read with
+            | Error _ as error -> Lwt.return error
+            | Ok chunk -> Lwt.map (Result.map (fun outcome -> Chunk outcome)) (ingest_slice t chunk)))
 
 let run t descriptor ~read_buffer_bytes ~on_outcome ~on_error =
   let buffer = Bytes.create read_buffer_bytes in

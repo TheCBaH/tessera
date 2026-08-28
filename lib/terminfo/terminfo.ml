@@ -450,13 +450,41 @@ let parse_compiled policy bytes =
                 string_range ~kind:"extended string" bytes ~offsets_start:extended_offsets_start
                   ~table_start:extended_table_start ~table_stop:extended_table_end index
               in
-              let extended_name index =
-                string_range ~kind:"extended capability name" bytes ~offsets_start:extended_offsets_start
-                  ~table_start:extended_table_start ~table_stop:extended_table_end (extended_string_count + index)
-              in
               let* () = validate_boolean ~context:"extended" ~start:extended_header_end extended_boolean_count in
               let* () = validate_numbers ~start:extended_number_start extended_number_count in
               let* () = validate_strings extended_string_count extended_string in
+              (* Unlike the legacy string table, the extended string table packs capability *values*
+                 first and capability *names* second, and the offsets recorded for names are relative
+                 to where the name area starts (right after the last value's bytes), not to
+                 [extended_table_start] as the offsets for values are. A compiled entry with no
+                 extended capabilities at all skips this whole branch (see the [string_table_end =
+                 Bytes.length bytes] case above), so every real terminfo entry with any extended
+                 capability -- which is effectively every modern system terminfo database -- was
+                 landing here and reading capability names out of the *value* bytes instead. *)
+              let* name_table_start =
+                let* value_area_length =
+                  let rec loop index acc =
+                    if index = extended_string_count then Ok acc
+                    else
+                      let* value = extended_string index in
+                      match value with
+                      | Absent | Cancelled -> loop (index + 1) acc
+                      | Present { start; length } ->
+                          let* value_end =
+                            checked_add ~context:"compiled extended string value end" (start - extended_table_start)
+                              length
+                          in
+                          let* value_end = checked_add ~context:"compiled extended string value end" value_end 1 in
+                          loop (index + 1) (max acc value_end)
+                  in
+                  loop 0 0
+                in
+                checked_end ~context:"compiled extended name table" bytes extended_table_start value_area_length
+              in
+              let extended_name index =
+                string_range ~kind:"extended capability name" bytes ~offsets_start:extended_offsets_start
+                  ~table_start:name_table_start ~table_stop:extended_table_end (extended_string_count + index)
+              in
               let* () =
                 validate extended_name_count (fun index ->
                     let* value = extended_name index in

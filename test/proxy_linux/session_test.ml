@@ -69,9 +69,9 @@ let%expect_test "application-to-terminal bytes are relayed verbatim even when a 
   let pty = Session.Loop.pty (Session.loop session) in
   let payload = "this exceeds the tiny max_slice_bytes policy limit" in
   Fake_platform.push_child_output pty payload;
-  (match Session.on_master_readable session with
+  (match Lwt_main.run (Session.on_master_readable session) with
   | Session.Application_ingest_failed error ->
-      Format.printf "ingest failed as scripted: %a@." Tessera_unix.Unix_adapter.pp_error (Err.Error.kind error)
+      Format.printf "ingest failed as scripted: %a@." Tessera_lwt.Lwt_adapter.pp_error (Err.Error.kind error)
   | Session.Application_bytes _ -> Format.printf "unexpectedly succeeded@."
   | _ -> Format.printf "unexpected event@.");
   (match read_available terminal_out_read ~len:(String.length payload) with
@@ -92,7 +92,7 @@ let%expect_test "application-to-terminal bytes that decode successfully are rela
   let start_cursor = Ring.cursor ring in
   let pty = Session.Loop.pty (Session.loop session) in
   Fake_platform.push_child_output pty "hi";
-  (match Session.on_master_readable session with
+  (match Lwt_main.run (Session.on_master_readable session) with
   | Session.Application_bytes outcome ->
       Format.printf "ingested: %a@." Tessera_model.Effect.Item_sequence.pp (Tessera.outcome_items outcome)
   | _ -> Format.printf "unexpected event@.");
@@ -116,7 +116,7 @@ let%expect_test "terminal-to-application bytes are relayed verbatim to the child
   let payload = "user keystrokes" in
   let written = Unix.write terminal_in_write (Bytes.of_string payload) 0 (String.length payload) in
   assert (written = String.length payload);
-  (match Session.on_terminal_readable session with
+  (match Lwt_main.run (Session.on_terminal_readable session) with
   | Session.Terminal_input_relayed count -> Format.printf "relayed %d byte(s)@." count
   | _ -> Format.printf "unexpected event@.");
   (match Fake_platform.read_sent_to_child pty ~len:(String.length payload) with
@@ -129,7 +129,13 @@ let%expect_test "terminal-to-application bytes are relayed verbatim to the child
     the child received it verbatim: true
     first record: traffic(#0, terminal-to-application, 15 byte(s)) |}]
 
-let%expect_test "wakeup readiness stays ahead of both application output and terminal input" =
+(* Under the old [select]-based dispatch, the wake-up descriptor was always reported first when several descriptors
+   were ready at once (proxy.md section 2 "Ordering against child output"). {!Session.run_master_loop},
+   {!Session.run_terminal_loop}, and {!Session.Loop.wait_for_wakeup} are now three independent Lwt tasks with no
+   ordering contract between them -- lwt.md's migration notes call this out explicitly as needing its own test rather
+   than an assumption the old ordering still holds "because it did before". What this layer still guarantees: all
+   three are delivered, regardless of which order the scheduler happens to service them in. *)
+let%expect_test "a resize wake-up, application output, and terminal input pending at once are all delivered" =
   let terminal_in_read, terminal_in_write = Unix.pipe () in
   let session =
     start ~policy:(or_fail (policy ())) ~terminal_in:terminal_in_read ~terminal_out:(snd (Unix.pipe ())) ()
@@ -138,14 +144,52 @@ let%expect_test "wakeup readiness stays ahead of both application output and ter
   Fake_platform.trigger_host_resize pty;
   Fake_platform.push_child_output pty "application";
   ignore (Unix.write terminal_in_write (Bytes.of_string "terminal") 0 8);
-  let pp_ready ppf = function
-    | Session.Wakeup -> Format.pp_print_string ppf "wakeup"
-    | Session.Master -> Format.pp_print_string ppf "master"
-    | Session.Terminal_input -> Format.pp_print_string ppf "terminal-input"
-    | Session.Extra_read _ -> Format.pp_print_string ppf "extra-read"
-    | Session.Extra_write _ -> Format.pp_print_string ppf "extra-write"
+  let wakeup =
+    Lwt.map
+      (function Session.Resized (Session.Loop.Resized _) -> "wakeup" | _ -> "wakeup(unexpected)")
+      (Lwt.bind (Session.Loop.wait_for_wakeup (Session.loop session)) (fun () -> Session.on_wakeup session))
   in
-  Format.printf "[%a]@."
-    (Format.pp_print_list ~pp_sep:(fun ppf () -> Format.pp_print_string ppf "; ") pp_ready)
-    (Session.select session ~extra_read_fds:[] ~extra_write_fds:[] ~timeout:0.0);
-  [%expect {| [wakeup; master; terminal-input] |}]
+  let master =
+    Lwt.map
+      (function Session.Application_bytes _ -> "master" | _ -> "master(unexpected)")
+      (Session.on_master_readable session)
+  in
+  let terminal_input =
+    Lwt.map
+      (function Session.Terminal_input_relayed _ -> "terminal-input" | _ -> "terminal-input(unexpected)")
+      (Session.on_terminal_readable session)
+  in
+  let results = Lwt_main.run (Lwt.all [ wakeup; master; terminal_input ]) in
+  Format.printf "%s@." (String.concat "; " (List.sort String.compare results));
+  [%expect {| master; terminal-input; wakeup |}]
+
+(* lwt-review.md P1: a bug fixed after the initial migration. [Session.run_relay] must end the session the instant
+   *either* direction reaches EOF -- joining the two loops instead would wait for both, hanging forever whenever only
+   one side ever reaches EOF (e.g. a child that exits while the real terminal stays open, an entirely ordinary case
+   this test recreates: the child EOFs; nothing ever closes terminal input). *)
+let%expect_test "the relay ends as soon as the child reaches EOF, without waiting for terminal input" =
+  let terminal_in_read, _terminal_in_write_kept_open = Unix.pipe () in
+  let session =
+    start ~policy:(or_fail (policy ())) ~terminal_in:terminal_in_read ~terminal_out:(snd (Unix.pipe ())) ()
+  in
+  let pty = Session.Loop.pty (Session.loop session) in
+  Fake_platform.close_child_output pty;
+  let events = ref [] in
+  Lwt_main.run (Session.run_relay session ~on_event:(fun event -> events := event :: !events));
+  (match !events with
+  | [ Session.Application_eof _ ] -> Format.printf "relay ended on the child's EOF alone@."
+  | _ -> Format.printf "unexpected events@.");
+  [%expect {| relay ended on the child's EOF alone |}]
+
+let%expect_test "the relay ends as soon as terminal input reaches EOF, without waiting for the child" =
+  let terminal_in_read, terminal_in_write = Unix.pipe () in
+  let session =
+    start ~policy:(or_fail (policy ())) ~terminal_in:terminal_in_read ~terminal_out:(snd (Unix.pipe ())) ()
+  in
+  Unix.close terminal_in_write;
+  let events = ref [] in
+  Lwt_main.run (Session.run_relay session ~on_event:(fun event -> events := event :: !events));
+  (match !events with
+  | [ Session.Terminal_input_eof ] -> Format.printf "relay ended on terminal input's EOF alone@."
+  | _ -> Format.printf "unexpected events@.");
+  [%expect {| relay ended on terminal input's EOF alone |}]

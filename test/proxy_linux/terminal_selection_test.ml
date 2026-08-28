@@ -116,3 +116,27 @@ let%expect_test "env_with_term appends TERM when the base environment has none" 
     (Format.pp_print_list ~pp_sep:(fun ppf () -> Format.pp_print_string ppf "; ") Format.pp_print_string)
     (Array.to_list env);
   [%expect {| PATH=/bin; TERM=xterm-256color |}]
+
+let pp_dirs = Format.pp_print_list ~pp_sep:(fun ppf () -> Format.pp_print_string ppf "; ") Format.pp_print_string
+
+let%expect_test "terminfo_dirs_of_env returns no directories when $TERMINFO_DIRS is unset" =
+  Format.printf "%a@." pp_dirs (Selection.terminfo_dirs_of_env None);
+  [%expect {| |}]
+
+(* lwt-review.md P2: ncurses treats an empty $TERMINFO_DIRS element as "/etc/terminfo at exactly this position",
+   not as nothing -- dropping it instead reorders the search and can select the wrong terminal description. *)
+let%expect_test "terminfo_dirs_of_env translates a middle empty field to /etc/terminfo, preserving order" =
+  Format.printf "%a@." pp_dirs (Selection.terminfo_dirs_of_env (Some "/custom::/other"));
+  [%expect {| /custom; /etc/terminfo; /other |}]
+
+let%expect_test "terminfo_dirs_of_env translates a leading empty field to /etc/terminfo" =
+  Format.printf "%a@." pp_dirs (Selection.terminfo_dirs_of_env (Some ":/custom"));
+  [%expect {| /etc/terminfo; /custom |}]
+
+let%expect_test "terminfo_dirs_of_env translates a trailing empty field to /etc/terminfo" =
+  Format.printf "%a@." pp_dirs (Selection.terminfo_dirs_of_env (Some "/custom:"));
+  [%expect {| /custom; /etc/terminfo |}]
+
+let%expect_test "terminfo_dirs_of_env translates an entirely empty value to a single /etc/terminfo" =
+  Format.printf "%a@." pp_dirs (Selection.terminfo_dirs_of_env (Some ""));
+  [%expect {| /etc/terminfo |}]

@@ -24,6 +24,11 @@ val select :
     not compatible -- falls back to {!Tessera.Bundled.description}/{!Tessera.Bundled.name}. Never fails itself: a
     discovery/parse failure is exactly the documented fallback path, not an error to propagate. *)
 
+val terminfo_dirs_of_env : string option -> string list
+(** Parses [$TERMINFO_DIRS] ([None] if unset) into the ordered list of directories {!select}'s [locate] should search,
+    following ncurses' colon-separated semantics: an empty element (leading, trailing, or between two colons) stands for
+    [/etc/terminfo] at that exact position, rather than being dropped. *)
+
 val env_with_term : string array -> child_term:string -> string array
 (** [base] with any existing [TERM=...] entry replaced by [child_term] (or [TERM=<child_term>] appended if [base] has
     none). Every other entry of [base] is preserved verbatim and in place. *)

@@ -37,6 +37,16 @@ val read_step : t -> Lwt_unix.file_descr -> bytes -> (read_result, error) Err.t 
 (** One {!Lwt_unix.read} on the descriptor into [buffer], ingested through the session. [buffer] is owned and reused by
     the caller across calls; only the bytes actually read are drawn from it before the next call may overwrite it. *)
 
+val ingest_slice : t -> Tessera_foundation.Types.slice -> (Tessera.outcome, error) Err.t Lwt.t
+(** Ingests bytes the caller already read by some other means, through the same locked path as {!read_step} -- for a
+    caller that must relay the raw bytes elsewhere (e.g. verbatim to a real terminal) independently of decoding, and so
+    cannot let this adapter own the {!Lwt_unix.read} call itself. Mirrors
+    {!module:Tessera_unix.Unix_adapter.ingest_slice}. *)
+
+val finish : t -> (Tessera.outcome, error) Err.t Lwt.t
+(** {!Tessera.finish} through the same locked path as {!run}'s EOF handling -- for a caller doing its own raw reads and
+    calling {!ingest_slice} directly instead of {!read_step}. Mirrors {!module:Tessera_unix.Unix_adapter.finish}. *)
+
 val run :
   t ->
   Lwt_unix.file_descr ->

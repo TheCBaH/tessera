@@ -13,10 +13,12 @@
   tessera_test_support
   tessera_foundation
   tessera
-  tessera_unix
+  tessera_lwt
   tessera_proxy_platform
   tessera_proxy_platform_linux
   tessera_proxy_linux
+  lwt
+  lwt.unix
   unix)
  (action
   (run %{test} %{exe:winsize_probe.exe}))

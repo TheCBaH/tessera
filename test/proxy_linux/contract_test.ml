@@ -179,7 +179,7 @@ let drive events =
           Fake_platform.push_child_bytes pty bytes;
           expect_record (fun sequence ->
               Record.traffic ~sequence ~direction:Foundation.Types.Application_to_terminal ~bytes);
-          (match (direct_ingest_result direct bytes, Session.on_master_readable session) with
+          (match (direct_ingest_result direct bytes, Lwt_main.run (Session.on_master_readable session)) with
           | Ok direct_outcome, Session.Application_bytes outcome ->
               direct := Tessera.session direct_outcome;
               expect_effects direct_outcome;
@@ -187,7 +187,7 @@ let drive events =
           | Error _, Session.Application_ingest_failed _ -> ()
           | Ok _, Session.Application_ingest_failed error ->
               failwith
-                (Format.asprintf "%s unexpectedly failed: %a" step Tessera_unix.Unix_adapter.pp_error
+                (Format.asprintf "%s unexpectedly failed: %a" step Tessera_lwt.Lwt_adapter.pp_error
                    (Err.Error.kind error))
           | Error error, Session.Application_bytes _ ->
               failwith
@@ -204,7 +204,7 @@ let drive events =
           if written <> Bytes.length bytes then failwith "short test pipe write";
           expect_record (fun sequence ->
               Record.traffic ~sequence ~direction:Foundation.Types.Terminal_to_application ~bytes);
-          (match Session.on_terminal_readable session with
+          (match Lwt_main.run (Session.on_terminal_readable session) with
           | Session.Terminal_input_relayed count when count = Bytes.length bytes -> ()
           | _ -> failwith (step ^ " terminal input was not relayed"));
           match Fake_platform.read_sent_to_child pty ~len:(Bytes.length bytes) with
@@ -217,7 +217,7 @@ let drive events =
           Fake_platform.trigger_host_resize pty;
           let direct_outcome = direct_resize direct columns rows in
           expect_resize direct_outcome;
-          match Session.on_wakeup session with
+          match Lwt_main.run (Session.on_wakeup session) with
           | Session.Resized (Session.Loop.Resized outcome) -> set_latest ~step outcome direct_outcome
           | _ -> failwith (step ^ " resize was not applied"))
       | Wakeup -> (
@@ -235,12 +235,12 @@ let drive events =
               (Foundation.UInt.to_int (Tessera_proxy_platform.Winsize.rows raw))
           in
           expect_resize direct_outcome;
-          match Session.on_wakeup session with
+          match Lwt_main.run (Session.on_wakeup session) with
           | Session.Resized (Session.Loop.Resized outcome) -> set_latest ~step outcome direct_outcome
           | _ -> failwith (step ^ " wakeup was not applied"))
       | Application_eof -> (
           Fake_platform.close_child_output pty;
-          match Session.on_master_readable session with
+          match Lwt_main.run (Session.on_master_readable session) with
           | Session.Application_eof outcome ->
               let direct_outcome =
                 match Tessera.finish !direct with
@@ -275,7 +275,7 @@ let%expect_test "scenario vocabulary preserves exact traffic and matches the dir
     Fake_platform.push_child_bytes pty bytes;
     let direct_outcome = direct_ingest direct bytes in
     last_direct := Some direct_outcome;
-    match Session.on_master_readable session with
+    match Lwt_main.run (Session.on_master_readable session) with
     | Session.Application_bytes outcome -> (
         assert_same_snapshot ~step:"application" outcome direct_outcome;
         match read_available terminal_out_read ~len:(Bytes.length bytes) with
@@ -286,7 +286,9 @@ let%expect_test "scenario vocabulary preserves exact traffic and matches the dir
   application (Bytes.of_string "A\027]2;proxy title\007");
   let terminal = Bytes.of_string "\000\027[A\255" in
   ignore (Unix.write terminal_in_write terminal 0 (Bytes.length terminal));
-  (match Session.on_terminal_readable session with Session.Terminal_input_relayed _ -> () | _ -> assert false);
+  (match Lwt_main.run (Session.on_terminal_readable session) with
+  | Session.Terminal_input_relayed _ -> ()
+  | _ -> assert false);
   (match Fake_platform.read_sent_to_child pty ~len:(Bytes.length terminal) with
   | Some text -> assert (String.equal text (Bytes.to_string terminal))
   | None -> assert false);
@@ -294,7 +296,7 @@ let%expect_test "scenario vocabulary preserves exact traffic and matches the dir
   Fake_platform.trigger_host_resize pty;
   let direct_outcome = direct_resize direct 6 3 in
   last_direct := Some direct_outcome;
-  (match Session.on_wakeup session with
+  (match Lwt_main.run (Session.on_wakeup session) with
   | Session.Resized (Session.Loop.Resized outcome) -> assert_same_snapshot ~step:"resize" outcome direct_outcome
   | _ -> assert false);
   application (Bytes.of_string "\231\149\140xy");
@@ -353,9 +355,9 @@ let%expect_test "ingestion failure is typed and cannot suppress an already-relay
   let pty = Session.Loop.pty (Session.loop session) in
   let payload = Bytes.of_string "abc\000\027[A\255" in
   Fake_platform.push_child_bytes pty payload;
-  (match Session.on_master_readable session with
+  (match Lwt_main.run (Session.on_master_readable session) with
   | Session.Application_ingest_failed error ->
-      Format.printf "typed failure: %a@." Tessera_unix.Unix_adapter.pp_error (Err.Error.kind error)
+      Format.printf "typed failure: %a@." Tessera_lwt.Lwt_adapter.pp_error (Err.Error.kind error)
   | _ -> assert false);
   (match read_available terminal_out_read ~len:(Bytes.length payload) with
   | Some relayed -> Format.printf "relay hex: %s@." (hex relayed)
