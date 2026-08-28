@@ -21,6 +21,7 @@ let () =
      the SIGWINCH handler is installed, otherwise a resize issued immediately after
      that line can be delivered while SIGWINCH still has its default disposition. *)
   print_winsize ();
+  Format.printf "env TESSERA_PROBE_VAR=%s@." (Option.value ~default:"<absent>" (Sys.getenv_opt "TESSERA_PROBE_VAR"));
   let buffer = Bytes.create 4096 in
   let rec loop () =
     match Unix.read Unix.stdin buffer 0 (Bytes.length buffer) with

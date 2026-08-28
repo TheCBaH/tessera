@@ -1,6 +1,6 @@
 (library
  (name tessera_test_terminfo)
- (modules description source compiled)
+ (modules description source compiled bundled)
  (inline_tests
   (modes byte native))
  (libraries fmt tessera_test_support tessera_test_fixtures tessera_terminfo)

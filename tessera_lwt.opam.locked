@@ -1,0 +1,38 @@
+opam-version: "2.0"
+name: "tessera_lwt"
+version: "dev"
+synopsis: "Lwt scheduler adapter for the Tessera portable terminal core"
+description:
+  "Serialises Lwt file-descriptor byte reads and validated resize requests through Tessera.Session.ingest, keeping per-direction writes ordered."
+license: "MIT"
+depends: [
+  "base-bigarray" {= "base"}
+  "base-bytes" {= "base"}
+  "base-threads" {= "base"}
+  "base-unix" {= "base"}
+  "cppo" {= "1.8.0"}
+  "csexp" {= "1.5.2"}
+  "dune" {= "3.24.2"}
+  "dune-configurator" {= "3.24.2"}
+  "lwt" {= "6.1.2"}
+  "ocaml" {= "4.14.3"}
+  "ocaml-base-compiler" {= "4.14.3"}
+  "ocaml-config" {= "2"}
+  "ocaml-options-vanilla" {= "1"}
+  "ocamlfind" {= "1.9.8"}
+  "ocplib-endian" {= "1.2"}
+]
+build: [
+  ["dune" "subst"] {dev}
+  [
+    "dune"
+    "build"
+    "-p"
+    name
+    "-j"
+    jobs
+    "@install"
+    "@runtest" {with-test}
+    "@doc" {with-doc}
+  ]
+]

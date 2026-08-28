@@ -2,7 +2,7 @@
  (name tessera_proxy_platform)
  (public_name tessera_proxy_platform)
  (libraries tessera_foundation unix)
- (modules winsize platform)
+ (modules winsize platform terminfo_resource)
  (modules_without_implementation platform))
 
 ; The real Linux binding (proxy.md implementation order step 4): the only compilation unit in this

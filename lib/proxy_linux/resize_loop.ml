@@ -34,14 +34,14 @@ module Make (Platform : Tessera_proxy_platform.Platform.S) = struct
         Format.fprintf ppf "invalid-initial-size(%a)" (Err.Error.pp_kind Foundation.Types.pp_error) error
     | `Spawn_failed error -> Format.fprintf ppf "spawn-failed(%a)" Platform.pp_error error
 
-  let startup ~argv ~lineage_id ~policy =
+  let startup ~argv ~env ~lineage_id ~policy =
     match Platform.physical_winsize () with
     | Error error -> Error (`Initial_query_failed error)
     | Ok raw -> (
         match Winsize.size raw with
         | Error error -> Error (`Invalid_initial_size error)
         | Ok size -> (
-            match Platform.spawn ~argv ~initial_winsize:raw with
+            match Platform.spawn ~argv ~env ~initial_winsize:raw with
             | Error error -> Error (`Spawn_failed error)
             | Ok pty ->
                 let adapter = Tessera_unix.Unix_adapter.create ~lineage_id ~policy ~size in

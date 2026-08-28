@@ -112,6 +112,17 @@ let cases =
       expected_result = "16 60\n";
       golden = "vt-resize-redraw.pane";
     };
+    {
+      name = "vt-shell-session";
+      input =
+        Literal
+          "echo shell-command-ran > \"$TESSERA_RESULT_PATH\"; tmux wait-for -S \"$TESSERA_TEST_DONE\"; tmux wait-for \
+           \"$TESSERA_TEST_CAPTURED\"";
+      resize = None;
+      ready_text = "TESSERA$";
+      expected_result = "shell-command-ran\n";
+      golden = "vt-shell-session.pane";
+    };
   ]
 
 let fresh_server () =

@@ -13,9 +13,9 @@ module Make (Platform : Tessera_proxy_platform.Platform.S) = struct
     terminal_buffer : bytes;
   }
 
-  let create ~argv ~lineage_id ~policy ~terminal_in ~terminal_out ~observer_capacity ~observer_start_position
+  let create ~argv ~env ~lineage_id ~policy ~terminal_in ~terminal_out ~observer_capacity ~observer_start_position
       ~read_buffer_bytes =
-    match Loop.startup ~argv ~lineage_id ~policy with
+    match Loop.startup ~argv ~env ~lineage_id ~policy with
     | Error _ as error -> error
     | Ok loop ->
         Ok

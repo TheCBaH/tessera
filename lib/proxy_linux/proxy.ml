@@ -129,12 +129,34 @@ let run_loop session observer =
   in
   loop ()
 
+(* terminal-idea.md "Terminal descriptions and terminfo": discover and parse the host's own declared terminal type,
+   or fall back to the bundled xterm-256color definition and advertise that fallback to the PTY-side application by
+   overriding its TERM. That advertisement is deliberately the only observable side effect: this process's own
+   stdout/stderr are the real terminal the child's output is about to be relayed onto verbatim, so nothing here
+   prints a startup diagnostic there -- a message on that shared terminal would be indistinguishable from the child's
+   own output and would corrupt the very transparency this proxy exists to preserve. *)
+let select_terminal ~policy =
+  let terminfo_dirs =
+    match Sys.getenv_opt "TERMINFO_DIRS" with
+    | None -> []
+    | Some value -> String.split_on_char ':' value |> List.filter (fun dir -> dir <> "")
+  in
+  Tessera_proxy_linux.Terminal_selection.select ~policy ~term:(Sys.getenv_opt "TERM")
+    ~locate:(fun ~term ->
+      Tessera_proxy_platform.Terminfo_resource.locate ~term ~home:(Sys.getenv_opt "HOME")
+        ~terminfo:(Sys.getenv_opt "TERMINFO") ~terminfo_dirs)
+    ~read:Tessera_proxy_platform.Terminfo_resource.read
+
 let () =
   let argv =
     if Array.length Sys.argv > 1 then Array.sub Sys.argv 1 (Array.length Sys.argv - 1)
     else match Sys.getenv_opt "SHELL" with Some shell -> [| shell |] | None -> [| "/bin/sh" |]
   in
   let policy = default_policy () in
+  let selection = select_terminal ~policy in
+  let env =
+    Tessera_proxy_linux.Terminal_selection.env_with_term (Unix.environment ()) ~child_term:selection.child_term
+  in
   let lineage_id =
     Tessera_foundation.Lineage_id.of_uint
       (match Tessera_foundation.UInt.of_int 1 with Ok v -> v | Error _ -> assert false)
@@ -144,7 +166,7 @@ let () =
     ~finally:(fun () -> leave_raw_mode Unix.stdin original_termios)
     (fun () ->
       match
-        Session.create ~argv ~lineage_id ~policy ~terminal_in:Unix.stdin ~terminal_out:Unix.stdout
+        Session.create ~argv ~env ~lineage_id ~policy ~terminal_in:Unix.stdin ~terminal_out:Unix.stdout
           ~observer_capacity:4096 ~observer_start_position:Tessera_proxy_observer.Record.initial_sequence
           ~read_buffer_bytes:65536
       with

@@ -37,12 +37,14 @@ module Make (Platform : Tessera_proxy_platform.Platform.S) : sig
 
   val startup :
     argv:string array ->
+    env:string array ->
     lineage_id:Tessera_foundation.Lineage_id.t ->
     policy:Tessera_foundation.Policy.t ->
     (t, error) result
-  (** proxy.md section 2 "Startup": queries {!Platform.physical_winsize}, validates it, spawns the child with that value
-      as [initial_winsize], then creates the adapter with the same validated size. No [Out_of_band (Resize _)] is
-      ingested for the initial size: {!Tessera_unix.Unix_adapter.create} already establishes it. *)
+  (** proxy.md section 2 "Startup": queries {!Platform.physical_winsize}, validates it, spawns the child with [env] as
+      its environment and that value as [initial_winsize], then creates the adapter with the same validated size. No
+      [Out_of_band (Resize _)] is ingested for the initial size: {!Tessera_unix.Unix_adapter.create} already establishes
+      it. *)
 
   val pty : t -> Platform.pty
   val adapter : t -> Tessera_unix.Unix_adapter.t

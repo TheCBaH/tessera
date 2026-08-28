@@ -104,7 +104,9 @@ let () =
   let size_a = winsize 20 6 in
   let size_b = winsize 30 10 in
 
-  let host = or_fail_platform (Platform_linux.spawn ~argv:[| "/bin/cat" |] ~initial_winsize:size_a) in
+  let host =
+    or_fail_platform (Platform_linux.spawn ~argv:[| "/bin/cat" |] ~env:(Unix.environment ()) ~initial_winsize:size_a)
+  in
   Unix.dup2 (Platform_linux.master_fd host) Unix.stdin;
 
   let policy =
@@ -112,7 +114,11 @@ let () =
   in
   let lineage_id = Foundation.Lineage_id.of_uint (uint 1) in
   let loop =
-    match Loop.startup ~argv:[| helper_path |] ~lineage_id ~policy with
+    match
+      Loop.startup ~argv:[| helper_path |]
+        ~env:(Array.append (Unix.environment ()) [| "TESSERA_PROBE_VAR=env-reaches-child" |])
+        ~lineage_id ~policy
+    with
     | Ok loop -> loop
     | Error error -> failwith (Format.asprintf "startup failed: %a" Loop.pp_error error)
   in
@@ -120,6 +126,11 @@ let () =
 
   expect_winsize_line child_master ~expected:size_a
     ~label:"the child observes the exact winsize spawn applied at startup";
+  (match read_line child_master ~timeout:5.0 with
+  | Some line ->
+      check "the child observes an env variable set only in startup's ~env"
+        (line = "env TESSERA_PROBE_VAR=env-reaches-child")
+  | None -> check "the child observes an env variable set only in startup's ~env (no line received)" false);
 
   (* Simulate a host resize: change what physical_winsize() will read (a real ioctl on a real pty),
      then drive resize_wakeup_fd with a real kernel SIGWINCH to our own process -- proxy.md's "directly

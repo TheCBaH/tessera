@@ -10,7 +10,8 @@
   session_test
   contract_test
   observer_server_test
-  checkpoint_test)
+  checkpoint_test
+  terminal_selection_test)
  (inline_tests
   (modes byte native))
  (libraries

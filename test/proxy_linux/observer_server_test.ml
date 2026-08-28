@@ -170,7 +170,7 @@ let%expect_test "a stalled, non-reading observer client never delays or corrupts
   let lineage_id = Foundation.Lineage_id.of_uint (or_fail (uint 1)) in
   let session =
     or_fail_err Session.Loop.pp_error
-      (Session.create ~argv:[| "ignored" |] ~lineage_id ~policy ~terminal_in:terminal_in_read
+      (Session.create ~argv:[| "ignored" |] ~env:[||] ~lineage_id ~policy ~terminal_in:terminal_in_read
          ~terminal_out:terminal_out_write ~observer_capacity:64 ~observer_start_position:Record.initial_sequence
          ~read_buffer_bytes:65536)
   in

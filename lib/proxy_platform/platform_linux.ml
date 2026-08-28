@@ -59,7 +59,7 @@ let raw_of_winsize winsize =
   check_winsize_field "ypixel" ypixel;
   (rows, columns, xpixel, ypixel)
 
-let spawn ~argv ~initial_winsize =
+let spawn ~argv ~env ~initial_winsize =
   if Array.length argv = 0 then Error Empty_argv
   else
     let (_ : Unix.file_descr) = Lazy.force winch_signalfd in
@@ -76,7 +76,7 @@ let spawn ~argv ~initial_winsize =
               Unix.dup2 slave Unix.stdout;
               Unix.dup2 slave Unix.stderr;
               if slave <> Unix.stdin && slave <> Unix.stdout && slave <> Unix.stderr then Unix.close slave;
-              Unix.execvp argv.(0) argv
+              Unix.execvpe argv.(0) argv env
               (* _exit, not Stdlib.exit, deliberately: skips at_exit handlers and buffered-channel
                  flushes that would otherwise run again (once per process) after this fork, mirroring
                  Unix.create_process's own child-side error handling. *)

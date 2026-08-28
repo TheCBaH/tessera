@@ -23,6 +23,15 @@
  (enabled_if
   (= %{system} linux)))
 
+(library
+ (name tessera_test_terminfo_resource)
+ (modules terminfo_resource_test)
+ (inline_tests
+  (modes byte native))
+ (libraries tessera_proxy_platform unix)
+ (preprocess
+  (pps ppx_expect)))
+
 (alias
  (name test-proxy-platform-linux)
  (deps

@@ -62,6 +62,17 @@ case "$scenario" in
     printf '\033[2J\033[HRESIZE APPLIED: %s\n' "$dimensions"
     done_case
     ;;
+  vt-shell-session)
+    # terminal-idea.md's first-release acceptance criteria explicitly names "shell use" alongside
+    # interactive full-screen programs; the other cases here are all scripted fixtures, not a real
+    # interactive shell prompt. This one execs into an actual interactive POSIX shell (not just a
+    # script interpreting one) and the test driver types a real command at its prompt, so the proxied
+    # byte stream this exercises is genuine shell prompt/echo/output, not this fixture's own printf.
+    ready_case
+    export TESSERA_RESULT_PATH="$result"
+    export PS1='TESSERA$ '
+    exec sh -i
+    ;;
   *)
     printf 'unknown fixture scenario: %s\n' "$scenario" >&2
     exit 64

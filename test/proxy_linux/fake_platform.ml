@@ -24,6 +24,7 @@ type pty = {
   wakeup_write : Unix.file_descr;
   mutable applied : Winsize.t;
   mutable calls : call list; (* newest first *)
+  spawned_env : string array;  (** what {!spawn} was given, for tests asserting on it. *)
 }
 
 (* physical_winsize has no pty argument in Platform.S -- it is one physical terminal per process, not
@@ -41,11 +42,11 @@ let physical_winsize () =
   incr physical_winsize_calls;
   !physical_winsize_ref
 
-let spawn ~argv:_ ~initial_winsize =
+let spawn ~argv:_ ~env ~initial_winsize =
   let master_end, test_end = Unix.socketpair ~cloexec:true PF_UNIX SOCK_STREAM 0 in
   let wakeup_read, wakeup_write = Unix.pipe ~cloexec:true () in
   Unix.set_nonblock wakeup_read;
-  Ok { master_end; test_end; wakeup_read; wakeup_write; applied = initial_winsize; calls = [] }
+  Ok { master_end; test_end; wakeup_read; wakeup_write; applied = initial_winsize; calls = []; spawned_env = env }
 
 let master_fd pty = pty.master_end
 let get_winsize pty = Ok pty.applied
@@ -91,6 +92,7 @@ let trigger_host_resize pty =
 
 let calls pty = List.rev pty.calls
 let reset_calls pty = pty.calls <- []
+let spawned_env pty = pty.spawned_env
 
 let close pty =
   List.iter

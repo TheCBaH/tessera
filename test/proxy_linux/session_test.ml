@@ -47,7 +47,7 @@ let start ~policy ~terminal_in ~terminal_out () =
   Fake_platform.set_physical_winsize (or_fail (winsize 4 2));
   let lineage_id = Foundation.Lineage_id.of_uint (or_fail (uint 1)) in
   match
-    Session.create ~argv:[| "ignored-by-fake-platform" |] ~lineage_id ~policy ~terminal_in ~terminal_out
+    Session.create ~argv:[| "ignored-by-fake-platform" |] ~env:[||] ~lineage_id ~policy ~terminal_in ~terminal_out
       ~observer_capacity:64 ~observer_start_position:Record.initial_sequence ~read_buffer_bytes:256
   with
   | Ok session -> session

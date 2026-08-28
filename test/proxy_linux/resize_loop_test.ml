@@ -30,7 +30,7 @@ let start ~initial_columns ~initial_rows =
   Fake_platform.set_physical_winsize (or_fail (winsize initial_columns initial_rows));
   let lineage_id = Foundation.Lineage_id.of_uint (or_fail (uint 1)) in
   let policy = or_fail (policy ()) in
-  match Loop.startup ~argv:[| "/bin/true" |] ~lineage_id ~policy with
+  match Loop.startup ~argv:[| "/bin/true" |] ~env:[||] ~lineage_id ~policy with
   | Ok loop -> loop
   | Error error -> failwith (Format.asprintf "%a" Loop.pp_error error)
 

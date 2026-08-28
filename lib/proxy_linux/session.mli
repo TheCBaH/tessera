@@ -11,6 +11,7 @@ module Make (Platform : Tessera_proxy_platform.Platform.S) : sig
 
   val create :
     argv:string array ->
+    env:string array ->
     lineage_id:Tessera_foundation.Lineage_id.t ->
     policy:Tessera_foundation.Policy.t ->
     terminal_in:Unix.file_descr ->

@@ -4,4 +4,4 @@
  (modes byte native melange)
  (libraries tessera_foundation tessera_model tessera_renderer err_trace)
  (private_modules capability_program)
- (modules capability_program description terminfo encoder repaint))
+ (modules capability_program description terminfo encoder repaint bundled))

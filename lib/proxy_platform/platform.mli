@@ -18,9 +18,11 @@ module type S = sig
 
   val pp_error : Format.formatter -> error -> unit
 
-  val spawn : argv:string array -> initial_winsize:Winsize.t -> (pty, error) result
-  (** Opens a PTY, forks, execs [argv] on the slave side with the slave as its controlling terminal, and applies
-      [initial_winsize] before the child runs. *)
+  val spawn : argv:string array -> env:string array -> initial_winsize:Winsize.t -> (pty, error) result
+  (** Opens a PTY, forks, execs [argv] on the slave side with the slave as its controlling terminal and [env] as its
+      environment (not necessarily this process's own environment -- see terminal-idea.md's terminfo fallback
+      advertisement, which overrides the child's [TERM] this way), and applies [initial_winsize] before the child runs.
+  *)
 
   val master_fd : pty -> Unix.file_descr
   (** The descriptor to read child output from and write terminal input to. Never the slave. *)

@@ -1,0 +1,31 @@
+opam-version: "2.0"
+name: "tessera_proxy_observer"
+version: "dev"
+synopsis: "Bounded observer delivery for the Tessera proxy"
+description:
+  "In-process traffic/resize/effect record log with bounded, non-blocking publish, gap reporting, and authoritative snapshot resynchronisation."
+license: "MIT"
+depends: [
+  "base-bigarray" {= "base"}
+  "base-threads" {= "base"}
+  "base-unix" {= "base"}
+  "dune" {= "3.24.2"}
+  "ocaml" {= "4.14.3"}
+  "ocaml-base-compiler" {= "4.14.3"}
+  "ocaml-config" {= "2"}
+  "ocaml-options-vanilla" {= "1"}
+]
+build: [
+  ["dune" "subst"] {dev}
+  [
+    "dune"
+    "build"
+    "-p"
+    name
+    "-j"
+    jobs
+    "@install"
+    "@runtest" {with-test}
+    "@doc" {with-doc}
+  ]
+]

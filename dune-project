@@ -26,7 +26,6 @@
  (license MIT)
  (depends
   tessera
-  threads
   (ocaml (>= 4.14))))
 
 (package

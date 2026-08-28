@@ -37,4 +37,11 @@ pristine:
 clean:
 	ERR_TRACE_TEST_MELANGE=true opam exec -- dune $@
 
-.PHONY: check default build clean format format-check jsoo melange precommit pristine test
+# Regenerates every *.opam.locked file (opam-lock plugin) against the current switch, pinning the
+# exact transitive dependency versions `opam install --locked <package>.opam.locked` would install.
+# tessera.opam has no lock file: its only non-test dependency, err_trace, is vendored and pinned via
+# the vendor/err_trace git submodule commit instead, so opam never sees it as an installable package.
+opam-lock:
+	opam lock .
+
+.PHONY: check default build clean format format-check jsoo melange opam-lock precommit pristine test

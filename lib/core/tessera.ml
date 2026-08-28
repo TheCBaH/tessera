@@ -42,6 +42,7 @@ module Description = Tessera_terminfo.Description
 module Terminfo = Tessera_terminfo.Terminfo
 module Encoder = Tessera_terminfo.Encoder
 module Repaint = Tessera_terminfo.Repaint
+module Bundled = Tessera_terminfo.Bundled
 module Patch = Tessera_renderer.Patch
 module Renderer = Tessera_renderer.Renderer
 module Decoder = Tessera_decoder.Decoder

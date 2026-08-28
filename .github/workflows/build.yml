@@ -46,6 +46,12 @@ jobs:
     - name: test
       run: |
         ${{ env.EXEC }} make test
+    - name: jsoo
+      run: |
+        ${{ env.EXEC }} make jsoo
+    - name: melange
+      run: |
+        ${{ env.EXEC }} make melange
     - name: format-check
       run: |
         ${{ env.EXEC }} make format-check
