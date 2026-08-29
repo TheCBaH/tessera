@@ -30,3 +30,18 @@ let%expect_test "Unicode graphemes remain stable across boundaries" =
     final=[<U+0062>]
     wide=two
     combining=zero |}]
+
+let%expect_test "grapheme width distinguishes Emoji from Emoji_Presentation" =
+  (* Regression: ASCII digits, [#], and [*] carry Unicode's raw [Emoji] property (they are the
+     keycap-eligible base of sequences like "1\xEF\xB8\x8F\xE2\x83\xA3"), but render as ordinary
+     narrow text on their own -- [Emoji_Presentation] is the property that reflects default rendered
+     width. Node-pty.md's real-program tests caught this: every digit a real terminal program printed
+     came out double-width and interleaved with a wide-continuation cell. *)
+  let width codepoint = Model.Unicode.width (Model.Unicode.grapheme_of_scalar (Uchar.of_int codepoint)) in
+  let pp_widths ppf () =
+    Format.fprintf ppf "digit=%a hash=%a star=%a heart=%a grinning_face=%a@." Model.Unicode.pp_width (width 0x30)
+      Model.Unicode.pp_width (width 0x23) Model.Unicode.pp_width (width 0x2a) Model.Unicode.pp_width (width 0x2764)
+      Model.Unicode.pp_width (width 0x1f600)
+  in
+  Format.printf "%a" pp_widths ();
+  [%expect {| digit=one hash=one star=one heart=one grinning_face=two |}]

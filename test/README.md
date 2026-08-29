@@ -19,6 +19,7 @@ plus the JSOO and Melange runtime-fixture targets in this directory.
 | `test/integration` | `@test-integration` | `tessera_test_integration` | Full `Patch → Repaint.compile → Encoder.encode → Decoder.feed → Renderer.apply` round trip |
 | `test/proxy_linux` | `@test-proxy-linux` | `tessera_test_proxy_linux` | Deterministic fake-platform proxy contract: byte-exact bidirectional relay, typed ingest failure ordering, observer records, resize and direct-renderer snapshot equivalence |
 | `test/proxy_tmux` | `@test-proxy-tmux` | n/a | Detached fixed-size tmux compatibility cases for dialog, whiptail, custom VT redraw/form and resize fixtures; exact committed pane captures and installed emulator versions |
+| `test/node_pty_bridge` + `test/node_pty` | `@test-jsoo-pty`, `@test-melange-pty` (opt-in; see below) | `tessera_test_node_pty_bridge` | A runtime/integration suite: the same dialog/whiptail/VT/resize/shell-session cases as `test/proxy_tmux`, driven through a real Linux PTY by the generated js_of_ocaml and Melange `tessera.js_adapter` builds via Node's `node-pty`, asserting Tessera's own logical-screen snapshot (not a visual emulator capture) against a committed golden |
 | `test/public` | `@test-public` | `tessera_test_public` | Public `Tessera` facade smoke/compatibility examples only |
 | `test/properties` | `@test-properties` | n/a (`properties` test executable) | QCheck properties: arbitrary decoder chunking, resize/byte ingress interleavings, same-size resize refresh, checkpoint replay/branching, patch algebra, renderer invariants, source/compiled Terminfo equivalence |
 | `test/fuzz` | `@test-fuzz` | n/a (`decoder_fuzz`/`terminfo_fuzz` Crowbar executables) | Native fuzzing under small policy limits: decoder never raises on arbitrary/chunked bytes or oversized malformed control strings; compiled/source Terminfo parsing never raises on arbitrary or structurally-plausible bytes |
@@ -130,6 +131,38 @@ fail beyond the same typed validation `resize` always has. `test/runtime_fixture
 `run_js_adapter` additionally exercises `push`/`resize`/`finish` end-to-end under `js_smoke.ml` and
 `melange_smoke.ml`, so the adapter's portability (not just the core's) is proved on all three
 targets, not merely compiled.
+
+`test/node_pty_bridge` (library `tessera_test_node_pty_bridge`, module `Bridge`, `byte`/`melange`
+modes) and `test/node_pty` are a runtime/integration complement to `test/js_adapter`:
+where that suite proves `tessera.js_adapter` runs correctly as direct synchronous calls, this one
+proves the same generated JSOO/Melange code runs a *real* Linux terminal program end to end.
+`Bridge` owns constructing a `Js_adapter.t` with a fixed, generous xterm-256color policy (mirroring
+`lib/proxy_linux/proxy.ml`'s own built-in policy, for the same reason: a real interactive program,
+not a synthetic fixture, drives what crosses this boundary), the `push`/`resize`/`finish` calls, and
+a stable text rendering of the latest logical screen (fixed `columns`x`rows`, active screen, cursor,
+title, and diagnostics) for golden comparison -- every entry point takes and returns only
+`int`/`string`, so it compiles unchanged for both backends. `test/node_pty/jsoo_runner.ml` and
+`melange_runner.ml` are the only backend-specific code (an explicit `Js.export` shim for jsoo;
+Melange needs none beyond the re-export, since a Melange function already compiles straight to a
+CommonJS export of the same name and arity). `test/node_pty/run.js`, shared by both backends, owns
+the actual Linux PTY boundary via the locked `node-pty` npm package: it spawns the ported
+`test/proxy_tmux` cases (`dialog`/`whiptail`/VT redraw/form/resize/shell-session) directly under a
+PTY (no tmux layer in this suite -- Tessera's own snapshot is the oracle, not a second terminal
+emulator's pane capture), drives them via `test/node_pty/fixture.sh` (`test/proxy_tmux/fixture.sh`
+ported to file-based ready/done/captured signalling, since there is no tmux `wait-for` channel here),
+and asserts both the fixture's own result and a `test/node_pty/goldens/*.txt` snapshot golden. This
+suite is what caught a real, previously untested bug: `lib/model/unicode.ml`'s width function used
+Unicode's raw `Emoji` property, which is set on plain ASCII digits/`#`/`*` (they are the keycap
+emoji sequences' base character) even though they render as ordinary narrow text on their own --
+`Emoji_Presentation` is the property that reflects default rendered width; see
+`test/model/unicode.ml`'s `"grapheme width distinguishes Emoji from Emoji_Presentation"` case.
+
+This suite needs a Node runtime and the locked node-pty workspace (`make node-pty-install`, i.e.
+`cd test/node_pty && npm ci`), so `@test-jsoo-pty`/`@test-melange-pty` (`make test-jsoo-pty` /
+`make test-melange-pty` / `make test-node-pty`) stay separate Make/dune targets rather than folding
+into `@runtest`/`make test`, so a normal OCaml-only build never needs Node. `.github/workflows/build.yml`
+runs `make node-pty-install` (cached across runs by `test/node_pty/package-lock.json`'s hash, since
+`npm ci` recompiles node-pty's native addon from source) and `make test-node-pty` as explicit CI steps.
 
 ## Running one layer
 

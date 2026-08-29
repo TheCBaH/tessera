@@ -1,0 +1,9 @@
+{
+  "name": "tessera-node-pty-tests",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Node-pty integration-test workspace for Tessera's generated JS backends. Not an opam dependency; see test/README.md.",
+  "dependencies": {
+    "node-pty": "1.0.0"
+  }
+}

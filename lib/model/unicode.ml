@@ -101,7 +101,11 @@ let pp_width ppf = function
 
 let width grapheme =
   let scalar_width scalar =
-    if Uucp.Emoji.is_emoji scalar then 2
+    (* [Uucp.Emoji.is_emoji] is the raw Emoji property: true for the keycap-eligible ASCII base
+       characters (digits, [#], [*]) that render as ordinary narrow text on their own, not just for
+       characters that actually render as wide pictographs. [is_emoji_presentation] is the property
+       that reflects default rendered width. *)
+    if Uucp.Emoji.is_emoji_presentation scalar then 2
     else match Uucp.Break.tty_width_hint scalar with 2 -> 2 | 1 -> 1 | 0 | -1 -> 0 | _ -> assert false
   in
   match List.fold_left (fun maximum scalar -> max maximum (scalar_width scalar)) 0 grapheme with

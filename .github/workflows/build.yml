@@ -52,6 +52,34 @@ jobs:
     - name: melange
       run: |
         ${{ env.EXEC }} make melange
+    # node-pty's own node_modules (test/node_pty), not part of `make build`/`make test`: it needs a
+    # Node runtime and compiles node-pty's native PTY addon from source via node-gyp, which is what the
+    # cache below avoids repeating on every run. Keyed only on the lockfile (not matrix.ocaml_version),
+    # so both OCaml versions in the matrix share one cache entry -- node-pty doesn't depend on OCaml.
+    #
+    # `path:` below is a runner-side path (actions/cache runs on this job's own VM, not inside the
+    # container), while `node-pty install`/`node-pty test` run inside the container via `${{ env.EXEC }}`
+    # (a `devcontainer exec` prefix), where the same directory is `/workspaces/ocaml-devcontainer/...`.
+    # These name the same files, not a coincidence: this devcontainer.json sets no workspaceFolder/
+    # workspaceMount override, so the CLI bind-mounts this job's checkout (`$GITHUB_WORKSPACE`, where
+    # `actions/checkout` put it) straight onto that container path -- unlike the unrelated
+    # docker-outside-of-docker setup in `.devcontainer/devcontainers.cli/devcontainer.json`, this job's
+    # `docker`/`devcontainer` CLI calls run directly against this runner's own Docker daemon, so it is a
+    # real bind mount (one inode, two paths), not a copy -- `npm ci` writing inside the container is
+    # exactly what `actions/cache` reads/restores outside it.
+    - name: node-pty cache
+      id: node-pty-cache
+      uses: actions/cache@v4
+      with:
+        path: test/node_pty/node_modules
+        key: node-pty-${{ runner.os }}-${{ matrix.platform }}-${{ hashFiles('test/node_pty/package-lock.json') }}
+    - name: node-pty install
+      if: steps.node-pty-cache.outputs.cache-hit != 'true'
+      run: |
+        ${{ env.EXEC }} make node-pty-install
+    - name: node-pty test
+      run: |
+        ${{ env.EXEC }} make test-node-pty
     - name: format-check
       run: |
         ${{ env.EXEC }} make format-check

@@ -1,0 +1,11 @@
+size=40x10 active=primary cursor=0,4 visible=true title=tessera-node-pty-done
+SCROLL START                            
+one                                     
+redrawn two                             
+three                                   
+                                        
+                                        
+                                        
+                                        
+                                        
+                                        

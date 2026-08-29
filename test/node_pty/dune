@@ -1,0 +1,48 @@
+; Backend-specific Node bindings: jsoo_runner.ml/melange_runner.ml each export
+; test/node_pty_bridge/bridge.ml's five operations for their compiler, and run.js (the shared Node
+; runner; not managed by dune) drives whichever one is requested against a real Linux PTY via node-pty.
+; This suite needs a Node runtime and the locked node-pty workspace in this directory (`npm ci`), so the
+; runtime aliases below are opt-in rather than part of `@runtest` -- see test/README.md.
+
+(executable
+ (name jsoo_runner)
+ (modules jsoo_runner)
+ (modes js)
+ (libraries tessera_test_node_pty_bridge js_of_ocaml))
+
+(melange.emit
+ (target melange-output)
+ (alias node-pty-melange)
+ (modules melange_runner)
+ (module_systems commonjs)
+ (libraries tessera_test_node_pty_bridge))
+
+(rule
+ (alias test-jsoo-pty)
+ (deps
+  run.js
+  fixture.sh
+  (glob_files goldens/*.txt)
+  (source_tree node_modules)
+  package.json
+  jsoo_runner.bc.js)
+ (action
+  (run node run.js --backend jsoo --bridge jsoo_runner.bc.js)))
+
+(rule
+ (alias test-melange-pty)
+ (deps
+  run.js
+  fixture.sh
+  (glob_files goldens/*.txt)
+  (source_tree node_modules)
+  package.json
+  (alias node-pty-melange))
+ (action
+  (run
+   node
+   run.js
+   --backend
+   melange
+   --bridge
+   melange-output/test/node_pty/melange_runner.js)))

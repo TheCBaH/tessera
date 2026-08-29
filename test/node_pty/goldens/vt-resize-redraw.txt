@@ -1,0 +1,17 @@
+size=60x16 active=primary cursor=0,1 visible=true title=tessera-node-pty-done
+RESIZE APPLIED: 16 60                                       
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            

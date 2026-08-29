@@ -1,2 +1,3 @@
 _build/
 /.devcontainer/devcontainer-lock.json
+/test/node_pty/node_modules/

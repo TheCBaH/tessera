@@ -1,0 +1,11 @@
+size=40x10 active=primary cursor=0,6 visible=true title=tessera-node-pty-done
+TESSERA$ echo shell-command-ran > "$TESS
+ERA_RESULT_PATH"; printf '\033]0;%s\007'
+ "$TESSERA_TEST_DONE_TITLE"; : > "$TESSE
+RA_TEST_DONE_FILE"; while [ ! -f "$TESSE
+RA_TEST_CAPTURED_FILE" ]; do sleep 0.05;
+ done                                   
+                                        
+                                        
+                                        
+                                        

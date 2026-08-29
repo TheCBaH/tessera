@@ -1,0 +1,10 @@
+; Shared OCaml test bridge for the Node-pty integration tests: builds in both [byte]
+; (consumed by a js_of_ocaml host, see test/node_pty/jsoo_runner.ml) and [melange] (consumed directly,
+; see test/node_pty/melange_runner.ml) modes, exactly like tessera_js_adapter itself. No [native] mode:
+; nothing here runs as a native OCaml test executable.
+
+(library
+ (name tessera_test_node_pty_bridge)
+ (modes byte melange)
+ (modules bridge)
+ (libraries tessera tessera_js_adapter))
