@@ -1,0 +1,13 @@
+(library
+ (name tessera_web_rendering)
+ (public_name tessera.web_rendering)
+ (modes byte native melange)
+ (libraries
+  tessera_foundation
+  tessera_model
+  tessera_renderer
+  tessera_jsont
+  tessera_bytesrw
+  tessera_jsont_bytesrw
+  err_trace)
+ (modules web_frame web_html web_canvas web_json))

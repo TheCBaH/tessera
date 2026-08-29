@@ -1,0 +1,103 @@
+; The upstream releases are pure OCaml (topkg/ocamlfind, not Dune), pinned as the
+; vendor/json_codec/jsont and vendor/json_codec/bytesrw git submodules (unmodified,
+; matching how vendor/unicode pins uutf/uucp/uuseg).
+;
+; Every file below that needs a change for Melange is left untouched in the
+; submodule and instead generated at build time by applying a small, auditable
+; patch (patches/*.patch, each a `diff -u` against the pristine submodule file) to
+; the submodule original -- so `git diff` against the pinned submodule commit
+; always shows exactly nothing, and the maintained edit is the patch file alone.
+; See each patch's provenance header (added by the patch itself) for what changed
+; and why; see test/json_codec for proof the patched libraries still agree with
+; the real opam packages on ordinary (non-Bigarray) input.
+;
+; bytesrw_fmt.ml(i) and jsont_bytesrw.mli are copied unmodified (copy_files#): no
+; patch needed. jsont_bytesrw.ml needs one small patch, unrelated to Bigarray (see
+; below); jsont.ml(i), jsont_base.ml(i), and bytesrw.ml(i) need patches because
+; they reference Bigarray, which Melange has no module for at all, in ways
+; Tessera's web-rendering Jsont mappings never call (a resizable-bigarray array
+; builder, and Slice.of_bigbytes/to_bigbytes).
+(copy_files# jsont/src/bytesrw/jsont_bytesrw.mli)
+(copy_files# bytesrw/src/bytesrw_fmt.{ml,mli})
+
+(rule
+ (target jsont_bytesrw.ml)
+ (deps jsont/src/bytesrw/jsont_bytesrw.ml patches/jsont_bytesrw.ml.patch)
+ (action
+  (run
+   patch
+   -o
+   %{target}
+   -i
+   patches/jsont_bytesrw.ml.patch
+   jsont/src/bytesrw/jsont_bytesrw.ml)))
+
+(rule
+ (target jsont.ml)
+ (deps jsont/src/jsont.ml patches/jsont.ml.patch)
+ (action
+  (run patch -o %{target} -i patches/jsont.ml.patch jsont/src/jsont.ml)))
+
+(rule
+ (target jsont.mli)
+ (deps jsont/src/jsont.mli patches/jsont.mli.patch)
+ (action
+  (run patch -o %{target} -i patches/jsont.mli.patch jsont/src/jsont.mli)))
+
+(rule
+ (target jsont_base.ml)
+ (deps jsont/src/jsont_base.ml patches/jsont_base.ml.patch)
+ (action
+  (run patch -o %{target} -i patches/jsont_base.ml.patch jsont/src/jsont_base.ml)))
+
+(rule
+ (target jsont_base.mli)
+ (deps jsont/src/jsont_base.mli patches/jsont_base.mli.patch)
+ (action
+  (run
+   patch
+   -o
+   %{target}
+   -i
+   patches/jsont_base.mli.patch
+   jsont/src/jsont_base.mli)))
+
+(rule
+ (target bytesrw.ml)
+ (deps bytesrw/src/bytesrw.ml patches/bytesrw.ml.patch)
+ (action
+  (run patch -o %{target} -i patches/bytesrw.ml.patch bytesrw/src/bytesrw.ml)))
+
+(rule
+ (target bytesrw.mli)
+ (deps bytesrw/src/bytesrw.mli patches/bytesrw.mli.patch)
+ (action
+  (run
+   patch
+   -o
+   %{target}
+   -i
+   patches/bytesrw.mli.patch
+   bytesrw/src/bytesrw.mli)))
+
+(library
+ (name tessera_bytesrw)
+ (public_name tessera.bytesrw)
+ (wrapped false)
+ (modes byte native melange)
+ (modules bytesrw bytesrw_fmt))
+
+(library
+ (name tessera_jsont)
+ (public_name tessera.jsont)
+ (wrapped false)
+ (modes byte native melange)
+ (modules jsont jsont_base))
+
+(library
+ (name tessera_jsont_bytesrw)
+ (public_name tessera.jsont_bytesrw)
+ (wrapped false)
+ (modes byte native melange)
+ (libraries tessera_jsont tessera_bytesrw)
+ (modules jsont_bytesrw))

@@ -1,0 +1,18 @@
+(copy_files# ../corpus.ml)
+
+; native produces the golden compared against upstream/ (see ../dune); js_of_ocaml (modes js) and
+; melange.emit below compile the identical corpus.ml module against the same vendored libraries, so
+; ../dune's node-executed rule can prove all three runtimes agree.
+
+(executable
+ (name corpus)
+ (modes exe js)
+ (modules corpus)
+ (libraries tessera_jsont tessera_bytesrw tessera_jsont_bytesrw))
+
+(melange.emit
+ (target melange-output)
+ (alias corpus-melange)
+ (modules corpus)
+ (module_systems commonjs)
+ (libraries tessera_jsont tessera_bytesrw tessera_jsont_bytesrw))

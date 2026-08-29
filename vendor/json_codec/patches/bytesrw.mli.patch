@@ -1,0 +1,47 @@
+--- bytesrw/src/bytesrw.mli	2026-08-29 16:44:54.717059651 +0000
++++ bytesrw.mli	2026-08-29 16:46:28.619484309 +0000
+@@ -3,6 +3,13 @@
+    SPDX-License-Identifier: ISC
+   ---------------------------------------------------------------------------*)
+ 
++(* Dune/Melange overlay for Bytesrw, forked from bytesrw v0.3.0
++   (https://github.com/dbuenzli/bytesrw, tag v0.3.0, pinned as the
++   vendor/json_codec/bytesrw submodule). Melange has no Bigarray module at
++   all, so this file removes Slice.of_bigbytes/of_bigbytes_or_eod/
++   to_bigbytes. Tessera's web-rendering codec never calls them. Everything
++   else is the unmodified upstream signature. *)
++
+ (** Extended {!Stdlib.Bytes} module. Open to use it.
+ 
+     Open the module to use it. This adds these modules:
+@@ -180,19 +187,6 @@
+     (** [of_bytes_or_eod] is like {!of_bytes} except that if the bytes
+         are empty or if [first > last], {!eod} is returned. *)
+ 
+-    val of_bigbytes :
+-      ?first:int -> ?last:int ->
+-      (int, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t ->
+-      t
+-    (** [of_bigbytes] is like {!of_bytes} but {b copies} data from a bigbytes
+-        value. *)
+-
+-    val of_bigbytes_or_eod : ?first:int -> ?last:int ->
+-      (int, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t ->
+-      t
+-    (** [of_bytes_or_eod] is like {!of_bytes_or_eod} but {b copies} data from
+-        a bigbytes value. *)
+-
+     val of_string : ?first:int -> ?last:int -> string -> t
+     (** [of_string s] is [of_bytes (Bytes.of_string s)]. *)
+ 
+@@ -202,10 +196,6 @@
+     val to_bytes : t -> bytes
+     (** [to_bytes t] copies the range of [s] to a new [bytes] value. *)
+ 
+-    val to_bigbytes : t ->
+-      (int, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
+-    (** [to_bigbytes t] copies the range of [s] to a new bigbytes value. *)
+-
+     val to_string : t -> string
+     (** [to_string s] copies the range of [s] to a new [string] value. *)
+ 

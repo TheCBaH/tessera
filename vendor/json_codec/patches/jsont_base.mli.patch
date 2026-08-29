@@ -1,0 +1,34 @@
+--- jsont/src/jsont_base.mli	2026-08-29 16:44:49.698575873 +0000
++++ jsont_base.mli	2026-08-29 16:45:34.304137104 +0000
+@@ -3,6 +3,13 @@
+    SPDX-License-Identifier: ISC
+   ---------------------------------------------------------------------------*)
+ 
++(* Dune/Melange overlay for Jsont_base, forked from jsont v0.3.0
++   (https://github.com/dbuenzli/jsont, tag v0.3.0, pinned as the
++   vendor/json_codec/jsont submodule). Melange has no Bigarray module at all,
++   so the Rbigarray1 module below (used only by Jsont.bigarray/
++   Array.bigarray_map, which Tessera's schema never calls) is removed.
++   Everything else is the unmodified upstream signature. *)
++
+ (** Low-level internal tools for {!Jsont}. *)
+ 
+ val string_subrange : ?first:int -> ?last:int -> string -> string
+@@ -31,17 +38,6 @@
+   val to_array : 'a t -> 'a array
+ end
+ 
+-(** Resizable bigarrays. *)
+-module Rbigarray1 : sig
+-  type ('a, 'b, 'c) t
+-  val get : ('a, 'b, 'c) t -> int -> 'a
+-  val empty : ('a, 'b) Bigarray.kind -> 'c Bigarray.layout -> ('a, 'b, 'c) t
+-  val grow : ('a, 'b, 'c) t -> 'a -> unit
+-  val length : ('a, 'b, 'c) t -> int
+-  val add_last : 'a -> ('a, 'b, 'c) t -> ('a, 'b, 'c) t
+-  val to_bigarray : ('a, 'b, 'c) t -> ('a, 'b, 'c) Bigarray.Array1.t
+-end
+-
+ (** Mini fmt *)
+ module Fmt : sig
+   type 'a t = Format.formatter -> 'a -> unit

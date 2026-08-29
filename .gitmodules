@@ -13,3 +13,9 @@
 	path = vendor/unicode/uucp
 	url = https://github.com/dbuenzli/uucp.git
 	branch = master
+[submodule "vendor/json_codec/jsont"]
+	path = vendor/json_codec/jsont
+	url = https://github.com/dbuenzli/jsont.git
+[submodule "vendor/json_codec/bytesrw"]
+	path = vendor/json_codec/bytesrw
+	url = https://github.com/dbuenzli/bytesrw.git

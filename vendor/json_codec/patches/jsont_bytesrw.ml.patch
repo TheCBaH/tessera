@@ -1,0 +1,199 @@
+--- jsont/src/bytesrw/jsont_bytesrw.ml	2026-08-29 16:44:49.698195412 +0000
++++ /tmp/jsont_bytesrw.ml.work	2026-08-29 16:52:11.764952652 +0000
+@@ -3,6 +3,15 @@
+    SPDX-License-Identifier: ISC
+   ---------------------------------------------------------------------------*)
+ 
++(* Dune/Melange overlay for Jsont_bytesrw, forked from jsont v0.3.0
++   (https://github.com/dbuenzli/jsont, tag v0.3.0, pinned as the
++   vendor/json_codec/jsont submodule). The vendored Jsont (see jsont.ml's
++   overlay header) renames its `exception Error` to `Jsont_error` to avoid a
++   Melange top-level export collision with `module Error`. This file's every
++   bare (exception, not module-qualified) `Jsont.Error` reference is updated
++   to `Jsont.Jsont_error` to match; `Jsont.Error.*` module references are
++   untouched. Everything else, including all behaviour, is unmodified. *)
++
+ open Bytesrw
+ open Jsont.Repr
+ 
+@@ -476,7 +485,7 @@
+               then (decode d (of_t Jsont.ignore))
+               else (b := map.dec_add !i (decode d map.elt) !b)
+             with
+-            | Jsont.Error e ->
++            | Jsont.Jsont_error e ->
+                 let imeta = error_meta_to_current ~first_byte ~first_line d in
+                 Jsont.Repr.error_push_array (error_meta d) map (!i, imeta) e
+           end;
+@@ -489,7 +498,7 @@
+         done;
+         !b, !i
+       with
+-      | Jsont.Error e -> Jsont.Error.adjust_context ~first_byte ~first_line e
++      | Jsont.Jsont_error e -> Jsont.Error.adjust_context ~first_byte ~first_line e
+   in
+   let textloc = textloc_to_current d ~first_byte ~first_line in
+   let ws_after = nextc d; read_ws d; ws_pop d in
+@@ -507,7 +516,7 @@
+         d map (Unknown_mems None) String_map.empty String_map.empty []
+         Dict.empty
+     with
+-    | Jsont.Error (ctx, meta, k) when Jsont.Error.Context.is_empty ctx ->
++    | Jsont.Jsont_error (ctx, meta, k) when Jsont.Error.Context.is_empty ctx ->
+         let meta =
+           (* This is for when Jsont.Repr.finish_object_decode raises. *)
+           if Jsont.Textloc.is_none (Jsont.Meta.textloc meta)
+@@ -515,7 +524,7 @@
+           else meta
+         in
+         Jsont.Error.raise ctx meta k
+-    | Jsont.Error e -> Jsont.Error.adjust_context ~first_byte ~first_line e
++    | Jsont.Jsont_error e -> Jsont.Error.adjust_context ~first_byte ~first_line e
+   in
+   let textloc = textloc_to_current d ~first_byte ~first_line in
+   let ws_after = nextc d; read_ws d; ws_pop d in
+@@ -540,11 +549,11 @@
+               let t = Jsont.Repr.unsafe_to_t m.type' in
+               let v = match Jsont.Json.decode' t v with
+               | Ok v -> v
+-              | Error e -> raise_notrace (Jsont.Error e)
++              | Error e -> raise_notrace (Jsont.Jsont_error e)
+               in
+               Dict.add m.id v dict
+             with
+-            | Jsont.Error e ->
++            | Jsont.Jsont_error e ->
+                 Jsont.Repr.error_push_object (error_meta d) map nm e
+           in
+           let mem_miss = String_map.remove name mem_miss in
+@@ -586,11 +595,11 @@
+               let t = Jsont.Repr.unsafe_to_t umap.mems_type in
+               let v = match Jsont.Json.decode' t v with
+               | Ok v -> v
+-              | Error e -> raise_notrace (Jsont.Error e)
++              | Error e -> raise_notrace (Jsont.Jsont_error e)
+               in
+               umap.dec_add meta n v umems
+             with
+-            | Jsont.Error e ->
++            | Jsont.Jsont_error e ->
+                 Jsont.Repr.error_push_object (error_meta d) map nm e
+           in
+           let umems = List.fold_left add_delay (umap.dec_empty ()) delay in
+@@ -611,7 +620,7 @@
+     | Some (Mem_dec mem) ->
+         let mem_miss = String_map.remove name mem_miss in
+         let dict = try Dict.add mem.id (decode d mem.type') dict with
+-        | Jsont.Error e ->
++        | Jsont.Jsont_error e ->
+             Jsont.Repr.error_push_object (error_meta d) map (name, meta) e
+         in
+         read_json_mem_sep d;
+@@ -620,7 +629,7 @@
+         match u with
+         | Unknown_skip ->
+             let () = try decode d (Jsont.Repr.of_t Jsont.ignore) with
+-            | Jsont.Error e ->
++            | Jsont.Jsont_error e ->
+                 Jsont.Repr.error_push_object (error_meta d) map (name, meta) e
+             in
+             read_json_mem_sep d;
+@@ -631,7 +640,7 @@
+         | Unknown_keep (umap', _) ->
+             let umap =
+               try umap'.dec_add meta name (decode d umap'.mems_type) umap with
+-              | Jsont.Error e ->
++              | Jsont.Jsont_error e ->
+                   Jsont.Repr.error_push_object (error_meta d) map (name, meta) e
+             in
+             read_json_mem_sep d;
+@@ -651,7 +660,7 @@
+     match List.find_opt eq_tag cases.cases with
+     | None ->
+         (try Jsont.Repr.unexpected_case_tag_error (error_meta d) map cases tag
+-         with Jsont.Error e ->
++         with Jsont.Jsont_error e ->
+            Jsont.Repr.error_push_object
+              (error_meta d) map (cases.tag.name, nmeta) e)
+     | Some (Case case) ->
+@@ -688,7 +697,7 @@
+       let name = token_pop d in
+       if String.equal name cases.tag.name then
+         let tag = try decode d cases.tag.type' with
+-        | Jsont.Error e ->
++        | Jsont.Jsont_error e ->
+             Jsont.Repr.error_push_object (error_meta d) map (name, meta) e
+         in
+         decode_case_tag
+@@ -698,7 +707,7 @@
+       | Some (Mem_dec mem) ->
+           let mem_miss = String_map.remove name mem_miss in
+           let dict = try Dict.add mem.id (decode d mem.type') dict with
+-          | Jsont.Error e ->
++          | Jsont.Jsont_error e ->
+               Jsont.Repr.error_push_object (error_meta d) map (name, meta) e
+           in
+           read_json_mem_sep d;
+@@ -707,7 +716,7 @@
+           (* Because JSON can be out of order we don't know how to decode
+              this yet. Generic decode *)
+           let v = try decode d (Jsont.Repr.of_t Jsont.json) with
+-          | Jsont.Error e ->
++          | Jsont.Jsont_error e ->
+               Jsont.Repr.error_push_object (error_meta d) map (name, meta) e
+           in
+           let delay = ((name, meta), v) :: delay in
+@@ -737,7 +746,7 @@
+     let d = make_decoder ?layout ?locs ?file reader in
+     let v = (nextc d; decode d (Jsont.Repr.of_t t)) in
+     if d.u <> eot then err_exp_eot d else Ok v
+-  with Jsont.Error e -> Error e
++  with Jsont.Jsont_error e -> Error e
+ 
+ let decode ?layout ?locs ?file t reader =
+   Result.map_error Jsont.Error.to_string (decode' ?layout ?locs ?file t reader)
+@@ -904,7 +913,7 @@
+   let encode_element ~nest map e i v =
+     if i <> 0 then write_sep e;
+     try encode ~nest map.elt e v; e with
+-    | Jsont.Error e ->
++    | Jsont.Jsont_error e ->
+         Jsont.Repr.error_push_array Jsont.Meta.none map (i, Jsont.Meta.none) e
+   in
+   match e.format with
+@@ -925,7 +934,7 @@
+         write_char e '\n';
+         write_indent e ~nest;
+         try encode ~nest map.elt e v; e with
+-        | Jsont.Error e ->
++        | Jsont.Jsont_error e ->
+             Jsont.Repr.error_push_array
+               Jsont.Meta.none map (i, Jsont.Meta.none) e
+       in
+@@ -983,7 +992,7 @@
+       false
+       end
+     with
+-    | Jsont.Error e ->
++    | Jsont.Jsont_error e ->
+         Jsont.Repr.error_push_object Jsont.Meta.none map
+           (mmap.name, Jsont.Meta.none) e
+   in
+@@ -1028,7 +1037,7 @@
+       encode_mem_name e meta n;
+       encode ~nest umap.mems_type e v; false
+     with
+-    | Jsont.Error e ->
++    | Jsont.Jsont_error e ->
+         Jsont.Repr.error_push_object Jsont.Meta.none map (n, Jsont.Meta.none) e
+   in
+   umap.enc (encode_unknown_mem ~nest map umap e) mems start
+@@ -1037,7 +1046,7 @@
+   let e = make_encoder ?buf ?format ?number_format w in
+   let t = Jsont.Repr.of_t t in
+   try Ok (encode ~nest:0 t e v; write_eot ~eod e) with
+-  | Jsont.Error e -> Error e
++  | Jsont.Jsont_error e -> Error e
+ 
+ let encode ?buf ?format ?number_format t v ~eod w =
+   Result.map_error Jsont.Error.to_string @@

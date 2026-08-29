@@ -1,0 +1,82 @@
+--- jsont/src/jsont.mli	2026-08-29 16:44:49.698575873 +0000
++++ /tmp/jsont.mli.work	2026-08-29 16:51:01.738533648 +0000
+@@ -3,6 +3,20 @@
+    SPDX-License-Identifier: ISC
+   ---------------------------------------------------------------------------*)
+ 
++(* Dune/Melange overlay for Jsont, forked from jsont v0.3.0
++   (https://github.com/dbuenzli/jsont, tag v0.3.0, pinned as the
++   vendor/json_codec/jsont submodule). Melange has no Bigarray module at all,
++   so this file removes: Array.bigarray_builder/bigarray_map and the
++   top-level bigarray combinator. Tessera's web-rendering Jsont mappings
++   never call either.
++
++   Separately, upstream declares both `exception Error of Error.t` and a
++   `module Error` at the top level -- valid OCaml (different namespaces),
++   but Melange's CommonJS codegen exports both under the single JS property
++   name "Error" and rejects the collision. The exception is renamed here to
++   `Jsont_error`; the `Error` module keeps its upstream name and full API.
++   Everything else is the unmodified upstream signature. *)
++
+ (** Types for JSON values.
+ 
+     This module provides a type for describing subsets of JSON values as
+@@ -464,7 +478,7 @@
+   (**/**)
+ end
+ 
+-exception Error of Error.t
++exception Jsont_error of Error.t
+ (** The exception raised on map errors. In general codec and query
+     functions turn that for you into a {!result} value. *)
+ 
+@@ -853,18 +867,6 @@
+   (** [array_map elt] maps JSON arrays with elements of type [elt]
+       to [array] values. See also {!Jsont.array}. *)
+ 
+-  type ('a, 'b, 'c) bigarray_builder
+-  (** The type for bigarray_builders. *)
+-
+-  val bigarray_map :
+-    ?kind:string -> ?doc:string ->
+-    ?dec_skip:(int -> ('a, 'b, 'c) bigarray_builder -> bool) ->
+-    ('a, 'b) Bigarray.kind -> 'c Bigarray.layout -> 'a t ->
+-    (('a, 'b, 'c) Bigarray.Array1.t, 'a, ('a, 'b, 'c) bigarray_builder) map
+-  (** [bigarray k l elt] maps JSON arrays with elements of
+-      type [elt] to bigarray values of kind [k] and layout [l].  See
+-      also {!Jsont.bigarray}. *)
+-
+   (** {1:types JSON types} *)
+ 
+   val array : ('a, _, _) map -> 'a t
+@@ -894,12 +896,6 @@
+     the same [key] the element with the greatest index takes over.
+     Elements of the map are encoded to a JSON array in (binary) key order. *)
+ 
+-val bigarray :
+-  ?kind:string -> ?doc:string -> ('a, 'b) Bigarray.kind -> 'a t ->
+-  ('a, 'b, Bigarray.c_layout) Bigarray.Array1.t t
+-(** [bigarray k t] maps JSON arrays of type [t] to [Bigarray.Array1.t] values.
+-    See also {!Array.bigarray_map}. *)
+-
+ val t2 :
+   ?kind:string -> ?doc:string -> ?dec:('a -> 'a -> 't2) ->
+   ?enc:('t2 -> int -> 'a) -> 'a t -> 't2 t
+@@ -1439,7 +1435,7 @@
+   (** [recode'] is like {!val-recode} but preserves the error structure. *)
+ 
+   val update : 'a jsont -> json -> json
+-  (** [update] is like {!val-recode} but raises {!Jsont.exception-Error}. *)
++  (** [update] is like {!val-recode} but raises {!Jsont.exception-Jsont_error}. *)
+ 
+   (** {1:errors Errors} *)
+ 
+@@ -1680,7 +1676,7 @@
+     This representation may change even between minor versions of the
+     library. It can be used to devise new processors on JSON types.
+ 
+-    Processors should be ready to catch the {!Jsont.exception-Error} exception
++    Processors should be ready to catch the {!Jsont.exception-Jsont_error} exception
+     when they invoke functional members of the representation.
+ 
+     Processors should make sure they interpret mappings

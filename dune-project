@@ -16,6 +16,8 @@
   (qcheck-core :with-test)
   (crowbar :with-test)
   (memtrace :with-test)
+  (jsont :with-test)
+  (bytesrw :with-test)
   (ocaml (>= 4.14))))
 
 (package

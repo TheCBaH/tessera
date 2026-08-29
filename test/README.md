@@ -15,6 +15,8 @@ plus the JSOO and Melange runtime-fixture targets in this directory.
 | `test/terminfo/corpus` | `@test-terminfo-corpus` | `tessera_test_terminfo_corpus` | Named adversarial source/compiled byte corpus (data-led, additive; retained crash fixtures from `test/fuzz`) |
 | `test/encoder` | `@test-encoder` | `tessera_test_encoder` | Capability-program encoding |
 | `test/repaint` | `@test-repaint` | `tessera_test_repaint` | Repaint target/compile and rejection fixtures |
+| `test/web_rendering` | `@test-web-rendering` | `tessera_test_web_rendering` | `Web_frame.of_outcome`/`rows_of_cells`/`validate` (reset/delta, upgrade-to-reset, wide-glyph pairing, background/glyph invariants), `Web_html`/`Web_canvas` projections, `Web_json` envelope encode/decode goldens, and a QCheck properties executable (`validate` always holds, a reset frame matches its source snapshot via an independent projection-verifier, generation monotonicity) |
+| `test/json_codec` | `@test-json-codec` | n/a (`corpus` executables in `upstream/`, `vendored/`) | The vendored, Melange-compatible `tessera_jsont`/`tessera_bytesrw`/`tessera_jsont_bytesrw` (`vendor/json_codec`) against the real opam `jsont`/`bytesrw`: a shared corpus module compiled once per package family (native only, since both are `(wrapped false)` and cannot link into one executable) and diffed; the vendored corpus is also compiled to JSOO and Melange and executed with plain `node` (no `npm`), diffed against its own native output, so cross-runtime byte-identity is a real, executed check, not a compile-only one |
 | `test/core` | `@test-core` | `tessera_test_core` | `Session.ingest`/`finish`, resize ordering/observation, retained sessions |
 | `test/integration` | `@test-integration` | `tessera_test_integration` | Full `Patch → Repaint.compile → Encoder.encode → Decoder.feed → Renderer.apply` round trip |
 | `test/proxy_linux` | `@test-proxy-linux` | `tessera_test_proxy_linux` | Deterministic fake-platform proxy contract: byte-exact bidirectional relay, typed ingest failure ordering, observer records, resize and direct-renderer snapshot equivalence |
@@ -42,7 +44,10 @@ Shared, non-test-bearing support:
 Component suites depend on their own production library directly (e.g. `test/decoder` depends on
 `tessera_decoder`, not the `tessera` facade), so the Dune dependency graph documents and partly
 enforces the split: `test/model` cannot reach the decoder/renderer/core libraries, `test/decoder`
-and `test/renderer` cannot reach each other or `tessera` (core), and so on. `test/integration` and `test/public` depend only on the public `tessera` facade,
+and `test/renderer` cannot reach each other or `tessera` (core), and so on. `test/web_rendering`
+follows the same rule: it depends on `tessera_renderer` directly (matching `lib/web_rendering`
+itself), not the `tessera` facade -- gluing a real `Tessera.outcome` to `Web_frame.of_outcome` is a
+future JS-bridge milestone's job, not this one's. `test/integration` and `test/public` depend only on the public `tessera` facade,
 demonstrating the supported composition boundary. `test/properties` drives everything through the
 `tessera` facade too, but also depends directly on `tessera_foundation`/`tessera_model` for its
 generators (mirroring the pattern `test/core` already uses), since those are the value-model types

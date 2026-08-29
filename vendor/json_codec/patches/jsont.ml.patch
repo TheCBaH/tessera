@@ -1,0 +1,260 @@
+--- jsont/src/jsont.ml	2026-08-29 16:44:49.698575873 +0000
++++ /tmp/jsont_fix.ml	2026-08-29 17:16:41.947793897 +0000
+@@ -3,6 +3,24 @@
+    SPDX-License-Identifier: ISC
+   ---------------------------------------------------------------------------*)
+ 
++(* Dune/Melange overlay for Jsont, forked from jsont v0.3.0
++   (https://github.com/dbuenzli/jsont, tag v0.3.0, pinned as the
++   vendor/json_codec/jsont submodule). Melange has no Bigarray module at all,
++   so this file removes: Array.bigarray_builder/bigarray_map (the
++   Bigarray-backed array builder in the Array module) and the top-level
++   bigarray combinator. Tessera's web-rendering Jsont mappings never call
++   either.
++
++   Separately, upstream declares both `exception Error of error` and
++   `module Error = struct .. end` at the top level of this file. That is
++   valid OCaml (the exception and the module live in different namespaces),
++   but Melange's CommonJS module codegen exports both under the single JS
++   property name "Error" and rejects the collision ("Error are exported as
++   twice"). The exception (only ever raised/caught inside this file, and
++   otherwise converted to a `result` by the public decode'/encode'/recode')
++   is renamed here to `Jsont_error`; the `Error` module keeps its upstream
++   name and full API. Everything else is the unmodified upstream file. *)
++
+ module Fmt = Jsont_base.Fmt
+ type 'a fmt = 'a Fmt.t
+ let pp_kind = Fmt.code
+@@ -21,7 +39,7 @@
+ type context_index = string node * Path.index
+ type context = context_index list
+ type error = context * Meta.t * error_kind
+-exception Error of error
++exception Jsont_error of error
+ 
+ module Error = struct
+ 
+@@ -61,17 +79,17 @@
+   type t = error
+ 
+   let make_msg ctx meta msg = ctx, meta, msg
+-  let raise ctx meta msg = raise_notrace (Error (ctx, meta, msg))
+-  let msg meta msg = raise_notrace (Error (Context.empty, meta, msg))
++  let raise ctx meta msg = raise_notrace (Jsont_error (ctx, meta, msg))
++  let msg meta msg = raise_notrace (Jsont_error (Context.empty, meta, msg))
+   let msgf meta fmt = Format.kasprintf (fun m -> msg meta m) fmt
+   let push_array kinded_sort n (ctx, meta, e) =
+-    raise_notrace (Error (Context.push_array kinded_sort n ctx, meta, e))
++    raise_notrace (Jsont_error (Context.push_array kinded_sort n ctx, meta, e))
+ 
+   let push_object kinded_sort n (ctx, meta, e) =
+-    raise_notrace (Error (Context.push_object kinded_sort n ctx, meta, e))
++    raise_notrace (Jsont_error (Context.push_object kinded_sort n ctx, meta, e))
+ 
+   let adjust_context ~first_byte ~first_line (ctx, meta, e) = match ctx with
+-  | [] -> raise_notrace (Error (ctx, meta, e))
++  | [] -> raise_notrace (Jsont_error (ctx, meta, e))
+   | ((sort, smeta), idx) :: is ->
+       let textloc = Meta.textloc smeta in
+       let textloc =
+@@ -80,7 +98,7 @@
+       in
+       let smeta = Meta.with_textloc smeta textloc in
+       let ctx = ((sort, smeta), idx) :: is in
+-      raise_notrace (Error (ctx, meta, e))
++      raise_notrace (Jsont_error (ctx, meta, e))
+ 
+   let pp ppf (ctx, m, msg) =
+     let pp_meta ppf m =
+@@ -894,21 +912,6 @@
+     let enc = { enc = array_enc } in
+     map ?kind ?doc ~dec_empty ?dec_skip ~dec_add ~dec_finish ~enc elt
+ 
+-  type ('a, 'b, 'c) bigarray_builder = ('a, 'b, 'c) Jsont_base.Rbigarray1.t
+-
+-  let bigarray_map ?kind ?doc ?dec_skip k l elt =
+-    let dec_empty _meta = Jsont_base.Rbigarray1.empty k l in
+-    let dec_add _i v a = Jsont_base.Rbigarray1.add_last v a in
+-    let dec_finish _meta _len a = Jsont_base.Rbigarray1.to_bigarray a in
+-    let enc f acc a =
+-      let acc = ref acc in
+-      for i = 0 to Bigarray.Array1.dim a - 1
+-      do acc := f !acc i (Bigarray.Array1.unsafe_get a i) done;
+-      !acc
+-    in
+-    let enc = { enc } in
+-    map ?kind ?doc ~dec_empty ?dec_skip ~dec_add ~dec_finish ~enc elt
+-
+   let array map = Repr.Array map
+ 
+   let stub_elt =
+@@ -946,9 +949,6 @@
+   let map = Array.map ?kind ?doc ~dec_empty ~dec_add ~dec_finish ~enc t in
+   Repr.Array map
+ 
+-let bigarray ?kind ?doc k t =
+-  Repr.Array (Array.bigarray_map ?kind ?doc k Bigarray.c_layout t)
+-
+ let tuple_no_decoder ~kind meta =
+   Error.no_decoder meta ~kind:(Sort.kinded' ~kind "tuple")
+ 
+@@ -1512,7 +1512,7 @@
+           try
+             if map.dec_skip i b then b else
+             map.dec_add i (decode map.elt v) b
+-          with Error e -> Repr.error_push_array meta map (i, get_meta v) e
++          with Jsont_error e -> Repr.error_push_array meta map (i, get_meta v) e
+         in
+         next map meta b (i + 1) vs
+     in
+@@ -1561,7 +1561,7 @@
+       match String_map.find_opt n mem_decs with
+       | Some (Mem_dec m) ->
+           let dict = try Dict.add m.id (decode m.type' v) dict with
+-          | Error e -> Repr.error_push_object meta map nm e
++          | Jsont_error e -> Repr.error_push_object meta map nm e
+           in
+           let mem_miss = String_map.remove n mem_miss in
+           decode_object_basic map meta umems umap mem_miss mem_decs dict mems
+@@ -1576,7 +1576,7 @@
+           | Unknown_keep (umap', _) ->
+               let umap =
+                 try umap'.dec_add nmeta n (decode umap'.mems_type v) umap with
+-                | Error e -> Repr.error_push_object meta map nm e
++                | Jsont_error e -> Repr.error_push_object meta map nm e
+               in
+               decode_object_basic
+                 map meta umems umap mem_miss mem_decs dict mems
+@@ -1612,7 +1612,7 @@
+     | ((n, meta as nm), v as mem) :: mems ->
+         if n = cases.tag.name then
+           let tag = try decode cases.tag.type' v with
+-          | Error e -> Repr.error_push_object meta map nm e
++          | Jsont_error e -> Repr.error_push_object meta map nm e
+           in
+           decode_case_tag map meta tag delay mems
+         else
+@@ -1623,7 +1623,7 @@
+               map meta umems cases mem_miss mem_decs dict delay mems
+         | Some (Mem_dec m) ->
+             let dict = try Dict.add m.id (decode m.type' v) dict with
+-            | Error e -> Repr.error_push_object meta map nm e
++            | Jsont_error e -> Repr.error_push_object meta map nm e
+             in
+             let mem_miss = String_map.remove n mem_miss in
+             decode_object_cases
+@@ -1643,7 +1643,7 @@
+     | Object _ -> dec t map.dec_object j
+ 
+   let dec = decode
+-  let decode' t j = try Ok (decode t j) with Error e -> Result.Error e
++  let decode' t j = try Ok (decode t j) with Jsont_error e -> Result.Error e
+   let decode t j = Result.map_error Error.to_string (decode' t j)
+ 
+   (* Encode *)
+@@ -1657,7 +1657,7 @@
+   | Array map ->
+       let enc map acc i elt =
+         try encode map.elt elt :: acc with
+-        | Error e -> Repr.error_push_array Meta.none map (i, Meta.none) e
++        | Jsont_error e -> Repr.error_push_array Meta.none map (i, Meta.none) e
+       in
+       list ~meta:(map.enc_meta v) (List.rev (map.enc (enc map) [] v))
+   | Object map ->
+@@ -1677,7 +1677,7 @@
+         if mmap.enc_omit v then obj else
+         ((mmap.name, Meta.none), encode mmap.type' v) :: obj
+       with
+-      | Error e -> Repr.error_push_object Meta.none map (mmap.name, Meta.none) e
++      | Jsont_error e -> Repr.error_push_object Meta.none map (mmap.name, Meta.none) e
+     in
+     let obj = List.fold_left (encode_mem map) obj map.mem_encs in
+     match map.shape with
+@@ -1692,7 +1692,7 @@
+             if cases.tag.enc_omit case.tag then obj else
+             (n, encode cases.tag.type' case.tag) :: obj
+           with
+-          | Error e -> Repr.error_push_object Meta.none map n e
++          | Jsont_error e -> Repr.error_push_object Meta.none map n e
+         in
+         match u with
+         | Some (Unknown_keep (umap, enc)) ->
+@@ -1709,20 +1709,20 @@
+      let encode_mem map meta name v obj =
+        let n = (name, meta) in
+        let v = try encode umap.mems_type v with
+-       | Error e -> Repr.error_push_object Meta.none map n e
++       | Jsont_error e -> Repr.error_push_object Meta.none map n e
+        in
+        (n, v) :: obj
+      in
+      (umap.enc (encode_mem map) mems obj)
+ 
+    let enc = encode
+-   let encode' t v = try Ok (encode t v) with Error e -> Result.Error e
++   let encode' t v = try Ok (encode t v) with Jsont_error e -> Result.Error e
+    let encode t v = Result.map_error Error.to_string (encode' t v)
+ 
+    (* Recode *)
+ 
+    let update t v = enc t (dec t v)
+-   let recode' t v = try Ok (update t v) with Error e -> Result.Error e
++   let recode' t v = try Ok (update t v) with Jsont_error e -> Result.Error e
+    let recode t v = Result.map_error Error.to_string (recode' t v)
+ end
+ 
+@@ -1755,7 +1755,31 @@
+   Repr.String (Base.map ~dec ~enc ~enc_meta:Json.meta ())
+ 
+ let json, json_array, mem_list, json_object =
+-  let rec elt = Repr.Rec any
++  (* Upstream defines [elt] (a plain, non-lazy value embedding the still-lazy [any]) as the first
++     binding of this recursive [and] group. Native/bytecode/JSOO all accept that order (their
++     recursive-value backpatching only needs [any]'s Lazy.t block to exist, not be forced, before
++     [elt] embeds a reference to it). Melange's compiled-JS recursive-value emission does not: it
++     names [elt]'s object literal so it reads [any]'s "const" binding before that binding's own
++     statement has run, a temporal-dead-zone ReferenceError at module load. Moving [any] (and every
++     binding it needs to exist as a name) before [elt] is a pure reordering of one recursive [and]
++     group -- order never changes such a group's meaning, only Melange's emission order -- so this
++     fixes the crash on all three targets alike. *)
++  let rec any = lazy begin
++    let json_array = Lazy.force array in
++    let json_object = Lazy.force object' in
++    let enc = function
++    | Null _ -> json_null | Bool _ -> json_bool
++    | Number _ -> json_number | String _ -> json_string
++    | Array _ -> json_array | Object _ -> json_object
++    in
++    Repr.Any { kind = "json"; doc = "";
++               dec_null = Some json_null; dec_bool = Some json_bool;
++               dec_number = Some json_number; dec_string = Some json_string;
++               dec_array = Some json_array;
++               dec_object = Some json_object; enc }
++   end
++
++  and elt = Repr.Rec any
+   and array_map = lazy begin
+     let dec_empty () = [] in
+     let dec_add _i v a = v :: a in
+@@ -1790,21 +1814,6 @@
+     |> Object.keep_unknown (Lazy.force mems) ~enc
+     |> Object.finish
+   end
+-
+-  and any = lazy begin
+-    let json_array = Lazy.force array in
+-    let json_object = Lazy.force object' in
+-    let enc = function
+-    | Null _ -> json_null | Bool _ -> json_bool
+-    | Number _ -> json_number | String _ -> json_string
+-    | Array _ -> json_array | Object _ -> json_object
+-    in
+-    Repr.Any { kind = "json"; doc = "";
+-               dec_null = Some json_null; dec_bool = Some json_bool;
+-               dec_number = Some json_number; dec_string = Some json_string;
+-               dec_array = Some json_array;
+-               dec_object = Some json_object; enc }
+-   end
+   in
+   Lazy.force any, Lazy.force array, Lazy.force mems, Lazy.force object'
+ 

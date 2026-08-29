@@ -1,0 +1,60 @@
+; See test/README.md's json_codec entry.
+;
+; 1. Upstream conformance: prove the vendored, Melange-compatible tessera_jsont/tessera_bytesrw/
+;    tessera_jsont_bytesrw overlay (vendor/json_codec) still agrees with the real upstream jsont/
+;    bytesrw opam packages on ordinary (non-Bigarray) input. Two separate native executables --
+;    one linking only the real opam packages, one linking only the vendored libraries, since a
+;    single executable cannot link both ((wrapped false) on both exposes the same top-level module
+;    names) -- see upstream/dune and vendored/dune.
+;
+; 2. Cross-runtime equivalence: the exact same vendored corpus module, already compiled and run
+;    natively above, is compiled two more ways in vendored/dune -- js_of_ocaml (modes js) and
+;    melange.emit -- and both are executed with plain `node` (no npm, no network: just the system
+;    `node` binary) so this is a real, executed proof, not a compile-only check.
+
+(rule
+ (target upstream.out)
+ (deps upstream/corpus.exe)
+ (action
+  (with-stdout-to
+   upstream.out
+   (run upstream/corpus.exe))))
+
+(rule
+ (target native.out)
+ (deps vendored/corpus.exe)
+ (action
+  (with-stdout-to
+   native.out
+   (run vendored/corpus.exe))))
+
+(rule
+ (target jsoo.out)
+ (deps vendored/corpus.bc.js)
+ (action
+  (with-stdout-to
+   jsoo.out
+   (run node vendored/corpus.bc.js))))
+
+(rule
+ (target melange.out)
+ (deps
+  (alias vendored/corpus-melange))
+ (action
+  (with-stdout-to
+   melange.out
+   (run node vendored/melange-output/test/json_codec/vendored/corpus.js))))
+
+(rule
+ (alias runtest)
+ (deps upstream.out native.out jsoo.out melange.out)
+ (action
+  (progn
+   (diff upstream.out native.out)
+   (diff native.out jsoo.out)
+   (diff native.out melange.out))))
+
+(alias
+ (name test-json-codec)
+ (deps
+  (alias runtest)))

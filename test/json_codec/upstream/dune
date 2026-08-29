@@ -1,0 +1,6 @@
+(copy_files# ../corpus.ml)
+
+(executable
+ (name corpus)
+ (modules corpus)
+ (libraries jsont bytesrw jsont.bytesrw))

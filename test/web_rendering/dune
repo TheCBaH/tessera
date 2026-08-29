@@ -1,0 +1,30 @@
+(library
+ (name tessera_test_web_rendering)
+ (modules frames rows validator json html)
+ (inline_tests
+  (modes byte native))
+ (libraries
+  tessera_test_support
+  tessera_foundation
+  tessera_model
+  tessera_renderer
+  tessera_web_rendering)
+ (preprocess
+  (pps ppx_expect)))
+
+(test
+ (name properties)
+ (modules properties)
+ (libraries
+  qcheck-core
+  qcheck-core.runner
+  tessera_test_support
+  tessera_foundation
+  tessera_model
+  tessera_renderer
+  tessera_web_rendering))
+
+(alias
+ (name test-web-rendering)
+ (deps
+  (alias runtest)))

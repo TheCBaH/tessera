@@ -1,0 +1,56 @@
+--- jsont/src/jsont_base.ml	2026-08-29 16:44:49.698575873 +0000
++++ jsont_base.ml	2026-08-29 16:45:26.406413390 +0000
+@@ -3,6 +3,13 @@
+    SPDX-License-Identifier: ISC
+   ---------------------------------------------------------------------------*)
+ 
++(* Dune/Melange overlay for Jsont_base, forked from jsont v0.3.0
++   (https://github.com/dbuenzli/jsont, tag v0.3.0, pinned as the
++   vendor/json_codec/jsont submodule). Melange has no Bigarray module at all,
++   so the Rbigarray1 module below (a resizable Bigarray.Array1.t, used only
++   by Jsont.bigarray/Array.bigarray_map, which Tessera's schema never calls)
++   is removed. Everything else is the unmodified upstream file. *)
++
+ (* These three things should really belong to String. *)
+ 
+ let string_subrange ?(first = 0) ?last s =
+@@ -138,39 +145,6 @@
+     v
+ end
+ 
+-(* Resizable bigarrays *)
+-
+-module Rbigarray1 = struct
+-  type ('a, 'b, 'c) t =
+-    { mutable els : ('a, 'b, 'c) Bigarray.Array1.t;
+-      mutable max : int; (* index of the last element of [els]. *)  }
+-
+-  let get a i = Bigarray.Array1.get a.els i
+-
+-  let empty kind layout =
+-    { els = Bigarray.Array1.create kind layout 0; max = -1 }
+-
+-  let grow a v =
+-    let len = a.max + 1 in
+-    let len = if len = 0 then 1 else len in
+-    let init i = Bigarray.Array1.(if i <= a.max then get a.els i else v) in
+-    let k, l = Bigarray.Array1.(kind a.els, layout a.els) in
+-    let els' = Bigarray.Array1.init k l (2 * len) init in
+-    a.els <- els'
+-
+-  let length a = a.max + 1
+-  let add_last v a =
+-    let max = a.max + 1 in
+-    if max = Bigarray.Array1.dim a.els then grow a v;
+-    a.max <- max; Bigarray.Array1.set a.els max v; a
+-
+-  let to_bigarray a =
+-    if a.max + 1 = Bigarray.Array1.dim a.els then a.els else
+-    let init i = Bigarray.Array1.get a.els i in
+-    let k, l = Bigarray.Array1.(kind a.els, layout a.els) in
+-    Bigarray.Array1.init k l (a.max + 1) init
+-end
+-
+ (* Mini fmt *)
+ 
+ module Fmt = struct
