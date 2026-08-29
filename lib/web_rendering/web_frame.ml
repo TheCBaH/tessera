@@ -27,14 +27,22 @@ type t = { kind : kind; rows : row list; presentation : presentation }
 
 type error =
   [ `Background_gap of Types.Row.t
+  | `Background_invalid_span of Types.Row.t
   | `Background_overlap of Types.Row.t
+  | `Duplicate_row of Types.Row.t
   | `Glyph_out_of_range of Types.coord
   | `Glyph_overlap of Types.coord
+  | `Incomplete_reset of Types.Row.t
+  | `Row_out_of_range of Types.Row.t
   | `Unpaired_wide_glyph of Types.coord ]
 
 let pp_error ppf = function
   | `Background_gap row -> Format.fprintf ppf "background-gap(row=%a)" Types.Row.pp row
+  | `Background_invalid_span row -> Format.fprintf ppf "background-invalid-span(row=%a)" Types.Row.pp row
   | `Background_overlap row -> Format.fprintf ppf "background-overlap(row=%a)" Types.Row.pp row
+  | `Duplicate_row row -> Format.fprintf ppf "duplicate-row(row=%a)" Types.Row.pp row
+  | `Incomplete_reset row -> Format.fprintf ppf "incomplete-reset(missing-row=%a)" Types.Row.pp row
+  | `Row_out_of_range row -> Format.fprintf ppf "row-out-of-range(row=%a)" Types.Row.pp row
   | `Glyph_out_of_range c -> Format.fprintf ppf "glyph-out-of-range(%a)" Types.pp_coord c
   | `Glyph_overlap c -> Format.fprintf ppf "glyph-overlap(%a)" Types.pp_coord c
   | `Unpaired_wide_glyph c -> Format.fprintf ppf "unpaired-wide-glyph(%a)" Types.pp_coord c
@@ -207,6 +215,7 @@ let check_row_background columns (row : row) =
   List.iter
     (fun (span : background_span) ->
       let s = column_int span.start and e = column_int span.stop in
+      if s > e || e > columns then raise (Invalid (`Background_invalid_span row.index));
       if s > !expect then raise (Invalid (`Background_gap row.index))
       else if s < !expect then raise (Invalid (`Background_overlap row.index));
       expect := e)
@@ -220,17 +229,34 @@ let check_row_glyphs columns (row : row) =
       let s = column_int g.start in
       let w = glyph_width_columns g.width in
       if s < !cursor then raise (Invalid (`Glyph_overlap (Types.coord ~column:g.start ~row:row.index)));
-      if s + w > columns then raise (Invalid (`Glyph_out_of_range (Types.coord ~column:g.start ~row:row.index)));
+      (* [s > columns || w > columns - s], not [s + w > columns]: [Types.Column.t] is an unchecked non-negative
+         [int], so a hand-built frame's [s + w] can wrap negative on native OCaml for [s] near [max_int] and slip
+         past an addition-based check. Checking [s <= columns] first means the subtraction below never underflows,
+         so [s + w] (computed only afterwards, now provably [<= columns]) is safe to store as the next cursor. *)
+      if s > columns || w > columns - s then
+        raise (Invalid (`Glyph_out_of_range (Types.coord ~column:g.start ~row:row.index)));
       cursor := s + w)
     row.glyphs
 
 let validate t =
   let columns = UInt.to_int (Types.Size.columns t.presentation.size) in
+  let rows_n = UInt.to_int (Types.Size.rows t.presentation.size) in
+  let seen = Array.make rows_n false in
   try
     List.iter
       (fun row ->
+        let idx = row_int row.index in
+        if idx >= rows_n then raise (Invalid (`Row_out_of_range row.index));
+        if seen.(idx) then raise (Invalid (`Duplicate_row row.index));
+        seen.(idx) <- true;
         check_row_background columns row;
         check_row_glyphs columns row)
       t.rows;
+    (match t.kind with
+    | Reset ->
+        for i = 0 to rows_n - 1 do
+          if not seen.(i) then raise (Invalid (`Incomplete_reset (row_of_int i)))
+        done
+    | Delta -> ());
     Ok ()
   with Invalid e -> E.fail e

@@ -12,7 +12,9 @@ type span_paint = { row : int; start : int; width : int; color : color }
 
 type op =
   | Fill of span_paint
-  | Glyph of { row : int; column : int; text : string; paint : paint }
+  | Glyph of { row : int; column : int; width : int; text : string; paint : paint }
+      (** [width] is the glyph's column span (1 or 2), so a consumer can clip/reserve the correct region without
+          re-deriving Unicode width from [text]. *)
   | Underline of span_paint
   | Strikethrough of span_paint
   | Cursor of { row : int; column : int; visible : bool; color : color }

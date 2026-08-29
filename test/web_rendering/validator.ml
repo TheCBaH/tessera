@@ -29,6 +29,58 @@ let check name frame =
   let result = with_error_kind Web.pp_error (Web.validate frame) in
   Format.printf "%s: %a@." name (pp_result (fun ppf () -> Format.pp_print_string ppf "valid")) result
 
+let%expect_test "validate rejects a row index outside the frame's size" =
+  let size = size_exn 3 2 in
+  let frame =
+    {
+      Web.kind = Web.Reset;
+      rows = [ { Web.index = row 2; background = [ background 0 3 ]; glyphs = [] } ];
+      presentation = presentation size;
+    }
+  in
+  check "row-out-of-range" frame;
+  [%expect {| row-out-of-range: row-out-of-range(row=2) |}]
+
+let%expect_test "validate rejects two rows sharing the same index" =
+  let size = size_exn 3 2 in
+  let frame =
+    {
+      Web.kind = Web.Reset;
+      rows =
+        [
+          { Web.index = row 0; background = [ background 0 3 ]; glyphs = [] };
+          { Web.index = row 0; background = [ background 0 3 ]; glyphs = [] };
+        ];
+      presentation = presentation size;
+    }
+  in
+  check "duplicate-row" frame;
+  [%expect {| duplicate-row: duplicate-row(row=0) |}]
+
+let%expect_test "validate rejects a Reset frame missing a row" =
+  let size = size_exn 3 2 in
+  let frame =
+    {
+      Web.kind = Web.Reset;
+      rows = [ { Web.index = row 0; background = [ background 0 3 ]; glyphs = [] } ];
+      presentation = presentation size;
+    }
+  in
+  check "incomplete-reset" frame;
+  [%expect {| incomplete-reset: incomplete-reset(missing-row=1) |}]
+
+let%expect_test "validate accepts a Delta frame with only some rows present" =
+  let size = size_exn 3 2 in
+  let frame =
+    {
+      Web.kind = Web.Delta;
+      rows = [ { Web.index = row 0; background = [ background 0 3 ]; glyphs = [] } ];
+      presentation = presentation size;
+    }
+  in
+  check "delta-partial" frame;
+  [%expect {| delta-partial: valid |}]
+
 let%expect_test "validate rejects a background gap" =
   let size = size_exn 3 1 in
   let frame =
@@ -41,6 +93,30 @@ let%expect_test "validate rejects a background gap" =
   check "gap" frame;
   [%expect {| gap: background-gap(row=0) |}]
 
+let%expect_test "validate rejects a background span extending past the row's columns" =
+  let size = size_exn 3 1 in
+  let frame =
+    {
+      Web.kind = Web.Reset;
+      rows = [ { Web.index = row 0; background = [ background 0 4; background 4 3 ]; glyphs = [] } ];
+      presentation = presentation size;
+    }
+  in
+  check "out-of-bounds-span" frame;
+  [%expect {| out-of-bounds-span: background-invalid-span(row=0) |}]
+
+let%expect_test "validate rejects a reversed background span" =
+  let size = size_exn 3 1 in
+  let frame =
+    {
+      Web.kind = Web.Reset;
+      rows = [ { Web.index = row 0; background = [ background 2 1 ]; glyphs = [] } ];
+      presentation = presentation size;
+    }
+  in
+  check "reversed-span" frame;
+  [%expect {| reversed-span: background-invalid-span(row=0) |}]
+
 let%expect_test "validate rejects a background overlap" =
   let size = size_exn 3 1 in
   let frame =
@@ -52,6 +128,27 @@ let%expect_test "validate rejects a background overlap" =
   in
   check "overlap" frame;
   [%expect {| overlap: background-overlap(row=0) |}]
+
+let%expect_test "validate rejects a glyph start so large that start + width overflows" =
+  (* max_int as [start]: a naive [s + w > columns] check wraps this negative and would wrongly accept it.
+     Types.Column.t is an unchecked non-negative int, so a hand-built frame can carry this value directly. *)
+  let size = size_exn 1 1 in
+  let frame =
+    {
+      Web.kind = Web.Reset;
+      rows =
+        [
+          {
+            Web.index = row 0;
+            background = [ background 0 1 ];
+            glyphs = [ { Web.start = column max_int; width = Model.Unicode.One; text = "x"; style } ];
+          };
+        ];
+      presentation = presentation size;
+    }
+  in
+  check "overflow-glyph-start" frame;
+  [%expect {| overflow-glyph-start: glyph-out-of-range((4611686018427387903,0)) |}]
 
 let%expect_test "validate rejects an out-of-range glyph column" =
   let size = size_exn 3 1 in

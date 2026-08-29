@@ -1,0 +1,4 @@
+# Unified diffs of blank context lines are, by format, a single trailing space -- unavoidable and
+# not a real whitespace defect. Exempt vendored patch files from `git diff --check`/`git apply
+# --whitespace=warn` so that inherent artifact doesn't get flagged as one.
+vendor/json_codec/patches/*.patch -whitespace

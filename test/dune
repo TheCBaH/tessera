@@ -21,7 +21,7 @@
 
 (alias
  (name jsoo)
- (deps js_smoke.bc.js))
+ (deps js_smoke.bc.js web_rendering_codec/corpus.bc.js))
 
 (melange.emit
  (target melange-output)
@@ -29,3 +29,8 @@
  (modules melange_smoke)
  (module_systems commonjs)
  (libraries tessera_runtime_fixture))
+
+(alias
+ (name tessera-melange)
+ (deps
+  (alias web_rendering_codec/corpus-melange)))

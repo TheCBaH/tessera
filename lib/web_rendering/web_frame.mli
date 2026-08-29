@@ -41,9 +41,13 @@ type t = { kind : kind; rows : row list; presentation : presentation }
 
 type error =
   [ `Background_gap of Tessera_foundation.Types.Row.t
+  | `Background_invalid_span of Tessera_foundation.Types.Row.t
   | `Background_overlap of Tessera_foundation.Types.Row.t
+  | `Duplicate_row of Tessera_foundation.Types.Row.t
   | `Glyph_out_of_range of Tessera_foundation.Types.coord
   | `Glyph_overlap of Tessera_foundation.Types.coord
+  | `Incomplete_reset of Tessera_foundation.Types.Row.t
+  | `Row_out_of_range of Tessera_foundation.Types.Row.t
   | `Unpaired_wide_glyph of Tessera_foundation.Types.coord ]
 
 module E : Err.S with type error = error
@@ -62,9 +66,14 @@ val of_outcome :
     [presentation] is always taken from [snapshot]. *)
 
 val validate : t -> (unit, error) Err.t
-(** Frame-intrinsic only: every row's background spans partition the row's full column range with no gaps or overlaps;
-    every row's glyphs are pairwise non-overlapping and lie within that same range. Ordinary glyph/background overlap is
-    never flagged. Does not and cannot check wide-glyph source-continuation pairing (see {!rows_of_cells}). *)
+(** Frame-intrinsic only: every row's [index] is a valid row of the frame's size (otherwise [`Row_out_of_range]) and no
+    two rows share an [index] (otherwise [`Duplicate_row]); a [Reset] frame's rows cover every row of the frame's size,
+    with none missing (otherwise [`Incomplete_reset], naming the first missing row -- a [Delta] frame is exempt, since
+    it is only ever the damaged subset); every background span has [0 <= start <= stop <= columns] (otherwise
+    [`Background_invalid_span]); every row's background spans partition the row's full column range with no gaps or
+    overlaps; every row's glyphs are pairwise non-overlapping and lie within that same range. Ordinary glyph/background
+    overlap is never flagged. Does not and cannot check wide-glyph source-continuation pairing (see {!rows_of_cells}).
+*)
 
 val pp : Format.formatter -> t -> unit
 val pp_background_span : Format.formatter -> background_span -> unit

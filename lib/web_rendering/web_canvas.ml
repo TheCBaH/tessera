@@ -12,7 +12,7 @@ type span_paint = { row : int; start : int; width : int; color : color }
 
 type op =
   | Fill of span_paint
-  | Glyph of { row : int; column : int; text : string; paint : paint }
+  | Glyph of { row : int; column : int; width : int; text : string; paint : paint }
   | Underline of span_paint
   | Strikethrough of span_paint
   | Cursor of { row : int; column : int; visible : bool; color : color }
@@ -27,8 +27,8 @@ let pp_color ppf = function
 let pp_op ppf = function
   | Fill v -> Format.fprintf ppf "fill(row=%d; start=%d; width=%d; color=%a)" v.row v.start v.width pp_color v.color
   | Glyph v ->
-      Format.fprintf ppf "glyph(row=%d; column=%d; text=%S; color=%a; bold=%b; italic=%b; opacity=%g)" v.row v.column
-        v.text pp_color v.paint.color v.paint.bold v.paint.italic v.paint.opacity
+      Format.fprintf ppf "glyph(row=%d; column=%d; width=%d; text=%S; color=%a; bold=%b; italic=%b; opacity=%g)" v.row
+        v.column v.width v.text pp_color v.paint.color v.paint.bold v.paint.italic v.paint.opacity
   | Underline v ->
       Format.fprintf ppf "underline(row=%d; start=%d; width=%d; color=%a)" v.row v.start v.width pp_color v.color
   | Strikethrough v ->
@@ -59,6 +59,8 @@ let background_ops row_i (span : Web_frame.background_span) =
   (fill :: deco (fun v -> Underline v) span.style.rendition.underline)
   @ deco (fun v -> Strikethrough v) span.style.rendition.strikethrough
 
+let glyph_width_columns = function Unicode.One | Unicode.Zero -> 1 | Unicode.Two -> 2
+
 let glyph_op row_i (g : Web_frame.glyph) =
   if g.style.rendition.invisible then None
   else
@@ -69,6 +71,7 @@ let glyph_op row_i (g : Web_frame.glyph) =
          {
            row = row_i;
            column = int_of_column g.start;
+           width = glyph_width_columns g.width;
            text = g.text;
            paint = { color = color_of fg; bold = g.style.rendition.bold; italic = g.style.rendition.italic; opacity };
          })

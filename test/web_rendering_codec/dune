@@ -1,0 +1,69 @@
+; A real, executed cross-runtime check for lib/web_rendering itself (Web_frame/Web_html/
+; Web_canvas/Web_json), complementing test/json_codec (which proves the underlying vendored
+; Jsont/Bytesrw codec agrees across runtimes, but never touches web_rendering's own types). The
+; same corpus.ml module is compiled natively, to js_of_ocaml, and to Melange, and all three are
+; executed (native directly; js_of_ocaml/Melange via plain `node`, no npm) and diffed
+; byte-for-byte. `@jsoo`/`@tessera-melange` (test/dune) depend on this directory's js/melange
+; artifacts, so `make jsoo`/`make melange` actually build and this alias actually runs
+; lib/web_rendering under those backends, not just the runtime-fixture smoke targets.
+
+(executable
+ (name corpus)
+ (modes exe js)
+ (modules corpus)
+ (libraries
+  tessera_foundation
+  tessera_model
+  tessera_renderer
+  tessera_web_rendering
+  err_trace))
+
+(melange.emit
+ (target melange-output)
+ (alias corpus-melange)
+ (modules corpus)
+ (module_systems commonjs)
+ (libraries
+  tessera_foundation
+  tessera_model
+  tessera_renderer
+  tessera_web_rendering
+  err_trace))
+
+(rule
+ (target native.out)
+ (deps corpus.exe)
+ (action
+  (with-stdout-to
+   native.out
+   (run ./corpus.exe))))
+
+(rule
+ (target jsoo.out)
+ (deps corpus.bc.js)
+ (action
+  (with-stdout-to
+   jsoo.out
+   (run node corpus.bc.js))))
+
+(rule
+ (target melange.out)
+ (deps
+  (alias corpus-melange))
+ (action
+  (with-stdout-to
+   melange.out
+   (run node melange-output/test/web_rendering_codec/corpus.js))))
+
+(rule
+ (alias runtest)
+ (deps native.out jsoo.out melange.out)
+ (action
+  (progn
+   (diff native.out jsoo.out)
+   (diff native.out melange.out))))
+
+(alias
+ (name test-web-rendering-codec)
+ (deps
+  (alias runtest)))
