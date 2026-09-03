@@ -8,10 +8,55 @@
   tessera_proxy_platform
   tessera_proxy_observer
   tessera_proxy_protocol
+  tessera_proxy_web_protocol
+  tessera_proxy_web_publisher
+  tessera_web_rendering
   lwt
   lwt.unix
-  unix)
- (modules resize_loop session observer_server checkpoint terminal_selection))
+  unix
+  digestif
+  bigstringaf
+  httpun
+  httpun-lwt-unix
+  httpun-ws
+  httpun-ws-lwt-unix
+  gluten
+  gluten-lwt-unix)
+ (modules
+  resize_loop
+  session
+  observer_server
+  checkpoint
+  terminal_selection
+  web_server
+  web_assets))
+
+; The static browser-asset generator: reads web/ at build time and emits
+; web_assets.ml, so tessera-proxy (an installed executable) never needs a source checkout nearby to
+; serve its own page. Unlike test/web_render_playwright/gen_goldens.ml (an explicit, reviewed developer
+; command), this rule always runs as part of the ordinary build -- there is no committed output to
+; review, only the always-current web/ sources it is generated from.
+
+(executable
+ (name gen_web_assets)
+ (modes exe)
+ (modules gen_web_assets))
+
+(rule
+ (targets web_assets.ml)
+ (deps
+  gen_web_assets.exe
+  ../../web/index.html
+  ../../web/tessera-decode.js
+  ../../web/tessera-driver.js
+  ../../web/tessera-html-target.js
+  ../../web/tessera.css
+  ../../web/proxy-web.js
+  ../../web/fonts/jetbrains-mono-latin-400-normal.woff2)
+ (action
+  (with-stdout-to
+   web_assets.ml
+   (run ./gen_web_assets.exe ../../web))))
 
 ; The composition root executable (proxy.md implementation order step 5). Kept as its own stanza,
 ; gated to Linux, since it is the only unit in this package that names the real

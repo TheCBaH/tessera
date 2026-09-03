@@ -14,7 +14,11 @@ FROM debian:${VARIANT}@${VARIANT_DIGEST}
 # generated js_of_ocaml/Melange backends under, plus node-gyp's build prerequisites (g++, python3; make
 # is already listed above) for node-pty's native PTY addon, which `make node-pty-install` (npm ci)
 # compiles from source against this Node build. dialog/whiptail/tmux above are the interactive programs
-# and independent oracle those tests (and test/proxy_tmux) drive.
+# and independent oracle those tests (and test/proxy_tmux) drive. test/web_render_playwright (proxy-web
+# -plan.md step 1's web_driver_reconnect.node.test.js/web_proxy.spec.js) also depends on node-pty for the
+# same reason -- tessera-proxy needs a real controlling terminal to start at all, confirmed empirically;
+# a plain child_process.spawn with pipes fails at startup -- so it compiles the same native addon from
+# source via `make web-render-npm-install` (npm ci), against the same g++/python3/make prerequisites.
 RUN set -eux;\
     apt-get update;\
     env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends\

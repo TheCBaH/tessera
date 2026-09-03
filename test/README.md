@@ -346,6 +346,25 @@ screenshots for the jsoo backend on `vt-resize-redraw`/`vt-scroll-redraw`/`vt-fo
 equivalence for those intermediate frames is already proven structurally by
 `test/web_bridge_equivalence`'s every-frame assertion, so it is not duplicated per backend here).
 
+`tests/html_target_dom.node.test.js` (plain `node --test`, no browser, no jsoo/Melange build) is a
+faster, narrower mirror of `web_render.spec.js`'s "final DOM state matches the native replay golden"
+check: it feeds each committed `goldens/<case>-html.frames.jsonl` straight into a real `TesseraDriver`
++ `TesseraHtmlTarget` running under `jsdom` (a headless, Node-only DOM implementation -- pinned to
+`25.0.1`, the latest release still supporting this project's Node 20 baseline; a newer major fails to
+even load here, since it depends on `undici` internals only present on Node >=22) and compares
+`probe()` against the same `test/web_rendering_traces/goldens/<case>.out` `html:` line oracle, with no
+Chromium and no bridge build in the loop -- a fast, DOM-construction-only failure signal. It
+deliberately does *not* replace `web_render.spec.js`'s own version of this check: only the real browser
+suite proves wire-stream fidelity per backend (jsoo/Melange), real CSS Grid layout, and the screenshot
+oracle, none of which `jsdom` can stand in for.
+
+The loopback HTTP/WebSocket server is deliberately native/Lwt/Unix code, so the live-proxy tests exercise
+one native producer only; they cannot be made into one end-to-end server test per generated backend. The
+portable rendering path is instead covered per backend by `web_render.spec.js` and
+`test/web_bridge_equivalence`: both execute the JSOO and Melange producers and compare their complete
+frame streams and reconstructed DOM against the native trace oracle. Together, the layers prove native
+transport/authentication/reconnect separately from JSOO/Melange rendering parity.
+
 This suite needs a Node runtime, the locked npm workspace, and a pinned Chromium install
 (`make playwright-install`, i.e. `cd test/web_render_playwright && npm ci && ./node_modules/.bin/
 playwright install chromium`), so `make test-web-render` stays a separate target from `@runtest`/

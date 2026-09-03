@@ -220,6 +220,15 @@ let test_case ~proxy ~fixture case =
 let version program arguments = String.trim (run ~capture:true program arguments)
 
 let () =
+  (* This suite's whole point is byte-exact fidelity of the *relayed terminal content* tmux's pane
+     capture sees -- and unlike a piped-subprocess test, a real tmux pane merges the child's stdout and
+     stderr onto the same terminal. tessera-proxy's own startup diagnostics (the web endpoint's
+     "tessera-proxy: web: http://..." banner) are deliberately printed to
+     stderr precisely because that is *not* the relayed stream in the piped/subprocess sense this
+     comment in proxy.ml documents -- but tmux still shows it in-pane, which would corrupt every golden
+     here. Disabling the web endpoint for this suite is the correct fix, not silencing or reordering the
+     banner: this suite tests the terminal relay, not the web endpoint. *)
+  Unix.putenv "TESSERA_PROXY_WEB" "0";
   let proxy = getenv "TESSERA_PROXY" in
   let fixture = getenv "TESSERA_PROXY_TMUX_FIXTURE" in
   Printf.printf "tmux=%s\ndialog=%s\nwhiptail=%s\n%!" (version "tmux" [ "-V" ]) (version "dialog" [ "--version" ])

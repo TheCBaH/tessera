@@ -84,6 +84,31 @@
   (ocaml (>= 4.14))))
 
 (package
+ (name tessera_proxy_web_protocol)
+ (synopsis "Versioned tessera.proxy-web control-channel wire protocol")
+ (description
+  "A pure JSON (Jsont) codec for the tessera.proxy-web client/server control messages exchanged over the proxy's WebSocket session channel, independent of any transport.")
+ (license MIT)
+ (depends
+  tessera_jsont
+  tessera_bytesrw
+  tessera_jsont_bytesrw
+  err_trace
+  (ocaml (>= 4.14))))
+
+(package
+ (name tessera_proxy_web_publisher)
+ (synopsis "Per-client web-rendering fan-out for the Tessera proxy")
+ (description
+  "Pure attach/reset/delta/backpressure state machine turning Tessera.outcome into per-client, per-target tessera.web-frame JSON, shared by every attached WebSocket client on that target.")
+ (license MIT)
+ (depends
+  tessera
+  tessera_web_rendering
+  err_trace
+  (ocaml (>= 4.14))))
+
+(package
  (name tessera_proxy_linux)
  (synopsis "Linux terminal proxy composition root for Tessera")
  (description
@@ -95,5 +120,14 @@
   tessera_proxy_platform
   tessera_proxy_observer
   tessera_proxy_protocol
+  tessera_proxy_web_protocol
+  tessera_proxy_web_publisher
+  tessera_web_rendering
   lwt
+  httpun
+  httpun-lwt-unix
+  httpun-ws
+  httpun-ws-lwt
+  httpun-ws-lwt-unix
+  digestif
   (ocaml (>= 4.14))))

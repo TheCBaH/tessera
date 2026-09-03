@@ -1,0 +1,5 @@
+(library
+ (name tessera_proxy_web_protocol)
+ (public_name tessera_proxy_web_protocol)
+ (libraries tessera_jsont tessera_bytesrw tessera_jsont_bytesrw err_trace)
+ (modules control))

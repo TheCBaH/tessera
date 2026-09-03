@@ -11,7 +11,8 @@
   contract_test
   observer_server_test
   checkpoint_test
-  terminal_selection_test)
+  terminal_selection_test
+  web_server_test)
  (inline_tests
   (modes byte native))
  (libraries
@@ -24,11 +25,17 @@
   tessera_proxy_platform
   tessera_proxy_observer
   tessera_proxy_protocol
+  tessera_proxy_web_protocol
+  tessera_web_rendering
   tessera_proxy_linux
   tessera_test_proxy_linux_fake_platform
   lwt
   lwt.unix
-  unix)
+  unix
+  bigstringaf
+  httpun
+  httpun-ws
+  httpun-ws-lwt-unix)
  (preprocess
   (pps ppx_expect)))
 

@@ -8,6 +8,7 @@
 module Platform = Tessera_proxy_platform_linux.Platform_linux
 module Session = Tessera_proxy_linux.Session.Make (Platform)
 module Observer_server = Tessera_proxy_linux.Observer_server
+module Web_server = Tessera_proxy_linux.Web_server
 
 let die message =
   Printf.eprintf "tessera-proxy: %s\n%!" message;
@@ -81,18 +82,37 @@ let create_observer_server ~ring ~policy =
         (Format.asprintf "%a" Observer_server.pp_error (Err.Error.kind error));
       None
 
-(* Each concern (application relay, resize wake-ups, observer connections) is its own independent Lwt task. The
-   relay is the one with a real end -- an EOF on *either* direction ends the session, matching today's behaviour, so
-   it is driven by {!Session.run_relay} rather than joining the two directions (which would wait for both and can
-   hang indefinitely, e.g. when a child exits while the real terminal stays open). The resize and observer loops
-   have no EOF of their own, so they run until [stop] resolves, which happens the instant the relay does. *)
-let run_loop session observer =
+(* On by default, disableable via TESSERA_PROXY_WEB=0, mirroring the observer
+   socket's own default-on posture and {!default_socket_path}'s env-driven convention. Degrades to
+   [None] on failure exactly like {!create_observer_server} -- this endpoint is a convenience, never a
+   requirement for the relay itself to work. *)
+let create_web_server () =
+  if Sys.getenv_opt "TESSERA_PROXY_WEB" = Some "0" then None
+  else
+    match Web_server.create ~max_pending_bytes:1_048_576 ~write_timeout:30.0 ~close_flush_timeout:1.0 () with
+    | Ok server ->
+        Printf.eprintf "tessera-proxy: web: %s\n%!" (Web_server.bootstrap_url server);
+        Some server
+    | Error error ->
+        Printf.eprintf "tessera-proxy: web endpoint disabled: %s\n%!"
+          (Format.asprintf "%a" Web_server.pp_error (Err.Error.kind error));
+        None
+
+(* Each concern (application relay, resize wake-ups, observer connections, web connections) is its own
+   independent Lwt task. The relay is the one with a real end -- an EOF on *either* direction ends the
+   session, matching today's behaviour, so it is driven by {!Session.run_relay} rather than joining the
+   two directions (which would wait for both and can hang indefinitely, e.g. when a child exits while
+   the real terminal stays open). The resize/observer/web loops have no EOF of their own, so they run
+   until [stop] resolves, which happens the instant the relay does. *)
+let run_loop session observer web =
   let on_event = function
     | Session.Resized (Session.Loop.Resized outcome) ->
-        Option.iter (fun server -> Observer_server.note_outcome server outcome) observer
+        Option.iter (fun server -> Observer_server.note_outcome server outcome) observer;
+        Option.iter (fun server -> Web_server.note_outcome server outcome) web
     | Session.Resized (Session.Loop.Reported _) -> ()
     | Session.Application_eof outcome | Session.Application_bytes outcome ->
-        Option.iter (fun server -> Observer_server.note_outcome server outcome) observer
+        Option.iter (fun server -> Observer_server.note_outcome server outcome) observer;
+        Option.iter (fun server -> Web_server.note_outcome server outcome) web
     | Session.Application_ingest_failed _ -> Option.iter Observer_server.drain observer
     | Session.Terminal_input_relayed _ -> Option.iter Observer_server.drain observer
     | Session.Terminal_input_eof -> ()
@@ -100,10 +120,11 @@ let run_loop session observer =
   let stop, wake_stop = Lwt.wait () in
   let resize_task = Session.run_resize_loop session ~on_event ~stop in
   let observer_task = match observer with Some server -> Observer_server.run server ~stop | None -> stop in
+  let web_task = match web with Some server -> Web_server.run server ~stop | None -> stop in
   Lwt_main.run
     (Lwt.bind (Session.run_relay session ~on_event) (fun () ->
          Lwt.wakeup_later wake_stop ();
-         Lwt.join [ resize_task; observer_task ]))
+         Lwt.join [ resize_task; observer_task; web_task ]))
 
 (* terminal-idea.md "Terminal descriptions and terminfo": discover and parse the host's own declared terminal type,
    or fall back to the bundled xterm-256color definition and advertise that fallback to the PTY-side application by
@@ -145,6 +166,9 @@ let () =
       | Error error -> die (Format.asprintf "%a" Session.Loop.pp_error error)
       | Ok session ->
           let observer = create_observer_server ~ring:(Session.ring session) ~policy in
+          let web = create_web_server () in
           Fun.protect
-            ~finally:(fun () -> Option.iter Observer_server.close observer)
-            (fun () -> run_loop session observer))
+            ~finally:(fun () ->
+              Option.iter Observer_server.close observer;
+              Option.iter Web_server.close web)
+            (fun () -> run_loop session observer web))

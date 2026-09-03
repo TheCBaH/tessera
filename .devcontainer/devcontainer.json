@@ -14,7 +14,7 @@
         },
         "./features/ocaml": {
             "version": "${localEnv:OCAML_VERSION:4.14.3}",
-            "packages": "async bytesrw crowbar fmt jsont js_of_ocaml lwt melange memtrace ocamlformat#0.28.1 ppx_expect qcheck"
+            "packages": "async bytesrw crowbar digestif fmt httpun httpun-lwt-unix httpun-ws httpun-ws-lwt httpun-ws-lwt-unix jsont js_of_ocaml lwt melange memtrace ocamlformat#0.28.1 ppx_expect qcheck"
         },
     },
     "customizations": {

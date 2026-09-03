@@ -1,0 +1,5 @@
+(library
+ (name tessera_proxy_web_publisher)
+ (public_name tessera_proxy_web_publisher)
+ (libraries tessera tessera_web_rendering err_trace)
+ (modules web_publisher))

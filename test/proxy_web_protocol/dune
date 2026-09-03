@@ -1,0 +1,13 @@
+(library
+ (name tessera_test_proxy_web_protocol)
+ (modules control_test)
+ (inline_tests
+  (modes byte native))
+ (libraries fmt tessera_proxy_web_protocol)
+ (preprocess
+  (pps ppx_expect)))
+
+(alias
+ (name test-proxy-web-protocol)
+ (deps
+  (alias runtest)))

@@ -1,0 +1,20 @@
+(library
+ (name tessera_test_proxy_web_publisher)
+ (modules web_publisher_test)
+ (inline_tests
+  (modes byte native))
+ (libraries
+  fmt
+  tessera_test_support
+  tessera_foundation
+  tessera_model
+  tessera
+  tessera_web_rendering
+  tessera_proxy_web_publisher)
+ (preprocess
+  (pps ppx_expect)))
+
+(alias
+ (name test-proxy-web-publisher)
+ (deps
+  (alias runtest)))
