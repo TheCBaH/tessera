@@ -361,6 +361,130 @@ let%expect_test "decode_canvas_frame rejects a reset frame missing background co
   (match result with Ok mutated -> check_rejected_canvas "incomplete-reset" mutated | Error e -> print_string e);
   [%expect {| incomplete-reset: true |}]
 
+(* --- generation/lineage_id canonical-decimal enforcement (both decode and encode) ---
+
+   {!Json.canonical_decimal} (mirrored, not solely implemented, by the browser-side decoder) accepts
+   only digits, no sign, and no leading zero unless the whole string is exactly ["0"]. These cases
+   prove the OCaml codec itself is the enforcement point, on both directions, for both fields --
+   fixing the gap where [meta_jsont] previously mapped both with plain [Jsont.string]. *)
+
+let%expect_test "decode_html_frame rejects a non-digit generation" =
+  let result =
+    let* golden = golden_html () in
+    Ok (replace ~sub:{|"generation":"1"|} ~by:{|"generation":"not-a-number"|} golden)
+  in
+  (match result with Ok mutated -> check_rejected "bad-generation-digits" mutated | Error e -> print_string e);
+  [%expect {| bad-generation-digits: true |}]
+
+let%expect_test "decode_html_frame rejects a negative generation" =
+  let result =
+    let* golden = golden_html () in
+    Ok (replace ~sub:{|"generation":"1"|} ~by:{|"generation":"-1"|} golden)
+  in
+  (match result with Ok mutated -> check_rejected "negative-generation" mutated | Error e -> print_string e);
+  [%expect {| negative-generation: true |}]
+
+let%expect_test "decode_html_frame rejects a leading-zero generation" =
+  let result =
+    let* golden = golden_html () in
+    Ok (replace ~sub:{|"generation":"1"|} ~by:{|"generation":"01"|} golden)
+  in
+  (match result with Ok mutated -> check_rejected "leading-zero-generation" mutated | Error e -> print_string e);
+  [%expect {| leading-zero-generation: true |}]
+
+let%expect_test "decode_html_frame rejects a non-digit lineage_id" =
+  let result =
+    let* golden = golden_html () in
+    Ok (replace ~sub:{|"lineage_id":"3"|} ~by:{|"lineage_id":"not-a-number"|} golden)
+  in
+  (match result with Ok mutated -> check_rejected "bad-lineage-digits" mutated | Error e -> print_string e);
+  [%expect {| bad-lineage-digits: true |}]
+
+let%expect_test "decode_html_frame rejects a negative lineage_id" =
+  let result =
+    let* golden = golden_html () in
+    Ok (replace ~sub:{|"lineage_id":"3"|} ~by:{|"lineage_id":"-1"|} golden)
+  in
+  (match result with Ok mutated -> check_rejected "negative-lineage" mutated | Error e -> print_string e);
+  [%expect {| negative-lineage: true |}]
+
+let%expect_test "decode_html_frame rejects a leading-zero lineage_id" =
+  let result =
+    let* golden = golden_html () in
+    Ok (replace ~sub:{|"lineage_id":"3"|} ~by:{|"lineage_id":"03"|} golden)
+  in
+  (match result with Ok mutated -> check_rejected "leading-zero-lineage" mutated | Error e -> print_string e);
+  [%expect {| leading-zero-lineage: true |}]
+
+let check_encode_rejected name (envelope : Json.html_envelope) =
+  Format.printf "%s: %a@." name Fmt.bool (Result.is_error (Json.encode_html_frame envelope))
+
+let%expect_test "encode_html_frame rejects a hand-built envelope with a malformed generation" =
+  let result =
+    let* frame = build () in
+    let envelope = Json.html_envelope_of frame in
+    Ok { envelope with meta = { envelope.meta with generation = "not-a-number" } }
+  in
+  (match result with
+  | Ok envelope -> check_encode_rejected "encode-bad-generation-digits" envelope
+  | Error e -> print_string e);
+  [%expect {| encode-bad-generation-digits: true |}]
+
+let%expect_test "encode_html_frame rejects a hand-built envelope with a negative generation" =
+  let result =
+    let* frame = build () in
+    let envelope = Json.html_envelope_of frame in
+    Ok { envelope with meta = { envelope.meta with generation = "-1" } }
+  in
+  (match result with
+  | Ok envelope -> check_encode_rejected "encode-negative-generation" envelope
+  | Error e -> print_string e);
+  [%expect {| encode-negative-generation: true |}]
+
+let%expect_test "encode_html_frame rejects a hand-built envelope with a leading-zero generation" =
+  let result =
+    let* frame = build () in
+    let envelope = Json.html_envelope_of frame in
+    Ok { envelope with meta = { envelope.meta with generation = "01" } }
+  in
+  (match result with
+  | Ok envelope -> check_encode_rejected "encode-leading-zero-generation" envelope
+  | Error e -> print_string e);
+  [%expect {| encode-leading-zero-generation: true |}]
+
+let%expect_test "encode_html_frame rejects a hand-built envelope with a malformed lineage_id" =
+  let result =
+    let* frame = build () in
+    let envelope = Json.html_envelope_of frame in
+    Ok { envelope with meta = { envelope.meta with lineage_id = "not-a-number" } }
+  in
+  (match result with
+  | Ok envelope -> check_encode_rejected "encode-bad-lineage-digits" envelope
+  | Error e -> print_string e);
+  [%expect {| encode-bad-lineage-digits: true |}]
+
+let%expect_test "encode_html_frame rejects a hand-built envelope with a negative lineage_id" =
+  let result =
+    let* frame = build () in
+    let envelope = Json.html_envelope_of frame in
+    Ok { envelope with meta = { envelope.meta with lineage_id = "-1" } }
+  in
+  (match result with
+  | Ok envelope -> check_encode_rejected "encode-negative-lineage" envelope
+  | Error e -> print_string e);
+  [%expect {| encode-negative-lineage: true |}]
+
+let%expect_test "encode_html_frame rejects a hand-built envelope with a leading-zero lineage_id" =
+  let result =
+    let* frame = build () in
+    let envelope = Json.html_envelope_of frame in
+    Ok { envelope with meta = { envelope.meta with lineage_id = "03" } }
+  in
+  (match result with
+  | Ok envelope -> check_encode_rejected "encode-leading-zero-lineage" envelope
+  | Error e -> print_string e);
+  [%expect {| encode-leading-zero-lineage: true |}]
+
 let%expect_test "decode_canvas_frame rejects a tiny payload declaring an enormous rows without allocating" =
   (* Same class of bug as the HTML case above: a decoder that groups ops into a scratch table sized directly from
      the declared geometry (e.g. [Array.make rows []]) would raise [Invalid_argument] or exhaust memory here. *)

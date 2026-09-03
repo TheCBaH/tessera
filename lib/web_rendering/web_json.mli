@@ -2,9 +2,17 @@
     Melange, so this codec is built on the vendored [tessera_jsont]/[tessera_bytesrw]/[tessera_jsont_bytesrw] libraries
     instead of an opam dependency). Every envelope carries a literal [schema]/[version]/[target] (["html"] or
     ["canvas"]), a [meta] block (frame kind, active screen, geometry, generation, lineage, title), and the typed
-    payload. [generation]/[lineage_id] are opaque browser-facing tokens (their canonical [pp] string, not a parseable
-    wire integer -- {!Tessera_foundation.Generation.t}/{!Tessera_foundation.Lineage_id.t} expose no accessor back to an
-    integer).
+    payload. [generation]/[lineage_id] are each the canonical, non-negative decimal encoding of their respective
+    {!Tessera_foundation.Generation.t}/{!Tessera_foundation.Lineage_id.t} ([Tessera_foundation.UInt.pp]'s output --
+    digits only, no sign, no leading zero unless the whole string is ["0"]), safe for any consumer to parse as an
+    arbitrary-precision integer and compare numerically. This is not just a convention: the codec itself enforces it --
+    decoding a [generation]/[lineage_id] that isn't in this form is a decode error, and encoding an envelope whose
+    [meta] carries one that isn't is an encode error (see [validate_meta]-shaped behaviour on [encode_html_frame]/
+    [encode_canvas_frame] below), so a hand-built envelope can never bypass this promise the way a plain [Jsont.string]
+    mapping would let it. [generation] is comparable numerically *within* one lineage (monotonically increasing there);
+    [lineage_id] is only guaranteed strictly increasing across successive bridge instances a caller creates for the same
+    conceptual session (a caller convention this module has no way to enforce, since it has no notion of "the previous
+    bridge") and is not otherwise comparable across unrelated sessions.
 
     Decoding enforces [schema]/[version]/[target] against the expected constants (an unsupported or mismatched wire
     frame is a decode error, never silently accepted), and validates every decoded {!Web_html.color_value}/CSS class

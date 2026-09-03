@@ -1,0 +1,10 @@
+; Portable OCaml wrapper around tessera_web_bridge for the browser driver/Playwright suite (see
+; test/web_render_playwright and test/web_render_fixtures): byte (a js_of_ocaml host), native (the
+; JSONL golden generator, no browser needed), and melange modes, exactly like tessera_web_bridge
+; itself.
+
+(library
+ (name tessera_test_web_bridge_runner)
+ (modes byte native melange)
+ (modules bridge_runner)
+ (libraries tessera_foundation tessera_web_bridge err_trace))

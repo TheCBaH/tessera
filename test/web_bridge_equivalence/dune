@@ -1,0 +1,67 @@
+; A real, executed cross-runtime check for lib/web_bridge itself, complementing
+; test/web_rendering_codec (which proves lib/web_rendering's own projection agrees across
+; runtimes, but never touches the push/resize/finish bridge surface a real JS host actually calls).
+; The same corpus.ml module (fed embedded_traces.ml's committed real-terminal traces) is compiled
+; natively, to js_of_ocaml, and to Melange, and all three are executed (native directly;
+; js_of_ocaml/Melange via plain `node`, no npm) and diffed byte-for-byte. `@jsoo`/`@tessera-melange`
+; (`make jsoo`/`make melange`) depend on this directory's js/melange artifacts, so those targets
+; actually build and run lib/web_bridge under those backends too.
+
+(executable
+ (name corpus)
+ (modes exe js)
+ (modules corpus embedded_traces)
+ (libraries
+  tessera_foundation
+  tessera_web_bridge
+  tessera_test_trace_fixture
+  err_trace))
+
+(melange.emit
+ (target melange-output)
+ (alias corpus-melange)
+ (modules corpus embedded_traces)
+ (module_systems commonjs)
+ (libraries
+  tessera_foundation
+  tessera_web_bridge
+  tessera_test_trace_fixture
+  err_trace))
+
+(rule
+ (target native.out)
+ (deps corpus.exe)
+ (action
+  (with-stdout-to
+   native.out
+   (run ./corpus.exe))))
+
+(rule
+ (target jsoo.out)
+ (deps corpus.bc.js)
+ (action
+  (with-stdout-to
+   jsoo.out
+   (run node corpus.bc.js))))
+
+(rule
+ (target melange.out)
+ (deps
+  (alias corpus-melange))
+ (action
+  (with-stdout-to
+   melange.out
+   (run node melange-output/test/web_bridge_equivalence/corpus.js))))
+
+(rule
+ (alias runtest)
+ (deps native.out jsoo.out melange.out)
+ (action
+  (progn
+   (diff native.out jsoo.out)
+   (diff native.out melange.out))))
+
+(alias
+ (name test-web-bridge-equivalence)
+ (deps
+  (alias runtest)))

@@ -1,0 +1,389 @@
+/* Static stylesheet for the tessera.web-frame HTML target. Layout, cursor shape, and rendition
+   classes live here -- never in JavaScript or in the wire payload -- so a theme change means
+   editing custom-property values, not the terminal model or the generated markup. Committed as a
+   separately versioned project asset.
+
+   Grid layout: `.tessera-frame` sizes a real CSS Grid from `--tessera-columns`/`--tessera-rows` (set
+   by TesseraHtmlTarget from the frame's own `columns`/`row_count`, mirroring
+   `Web_html.of_frame`'s emitted values exactly). `.tessera-row` is a fixed rule spanning every real
+   column (`grid-column: 1 / -1`) *before* `grid-template-columns: subgrid` lets its own children
+   (`.tessera-bg`/`.tessera-glyph`) place via their own inline `grid-column` against the frame's real
+   column tracks -- matching `Web_html.grid_column`'s output exactly. Row placement (`grid-row`) stays
+   inline per row element, matching `Web_html.add_row`. `.tessera-cursor` sits directly on the frame's
+   own grid via its own inline `grid-column`/`grid-row` (matching `Web_html.add_cursor` emitting both
+   directly on the cursor element, not nested inside a row).
+
+   No blink keyframes: the wire protocol carries no timing field, only `cursor.visible: bool`, so
+   there is nothing here to animate or disable. */
+
+@font-face {
+  font-family: 'Tessera Mono';
+  src: url('/fonts/jetbrains-mono-latin-400-normal.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+
+:root {
+  --tessera-default-fg: #d4d4d4;
+  --tessera-default-bg: #1e1e1e;
+  --tessera-color-0: #000000;
+  --tessera-color-1: #800000;
+  --tessera-color-2: #008000;
+  --tessera-color-3: #808000;
+  --tessera-color-4: #000080;
+  --tessera-color-5: #800080;
+  --tessera-color-6: #008080;
+  --tessera-color-7: #c0c0c0;
+  --tessera-color-8: #808080;
+  --tessera-color-9: #ff0000;
+  --tessera-color-10: #00ff00;
+  --tessera-color-11: #ffff00;
+  --tessera-color-12: #0000ff;
+  --tessera-color-13: #ff00ff;
+  --tessera-color-14: #00ffff;
+  --tessera-color-15: #ffffff;
+  --tessera-color-16: #000000;
+  --tessera-color-17: #00005f;
+  --tessera-color-18: #000087;
+  --tessera-color-19: #0000af;
+  --tessera-color-20: #0000d7;
+  --tessera-color-21: #0000ff;
+  --tessera-color-22: #005f00;
+  --tessera-color-23: #005f5f;
+  --tessera-color-24: #005f87;
+  --tessera-color-25: #005faf;
+  --tessera-color-26: #005fd7;
+  --tessera-color-27: #005fff;
+  --tessera-color-28: #008700;
+  --tessera-color-29: #00875f;
+  --tessera-color-30: #008787;
+  --tessera-color-31: #0087af;
+  --tessera-color-32: #0087d7;
+  --tessera-color-33: #0087ff;
+  --tessera-color-34: #00af00;
+  --tessera-color-35: #00af5f;
+  --tessera-color-36: #00af87;
+  --tessera-color-37: #00afaf;
+  --tessera-color-38: #00afd7;
+  --tessera-color-39: #00afff;
+  --tessera-color-40: #00d700;
+  --tessera-color-41: #00d75f;
+  --tessera-color-42: #00d787;
+  --tessera-color-43: #00d7af;
+  --tessera-color-44: #00d7d7;
+  --tessera-color-45: #00d7ff;
+  --tessera-color-46: #00ff00;
+  --tessera-color-47: #00ff5f;
+  --tessera-color-48: #00ff87;
+  --tessera-color-49: #00ffaf;
+  --tessera-color-50: #00ffd7;
+  --tessera-color-51: #00ffff;
+  --tessera-color-52: #5f0000;
+  --tessera-color-53: #5f005f;
+  --tessera-color-54: #5f0087;
+  --tessera-color-55: #5f00af;
+  --tessera-color-56: #5f00d7;
+  --tessera-color-57: #5f00ff;
+  --tessera-color-58: #5f5f00;
+  --tessera-color-59: #5f5f5f;
+  --tessera-color-60: #5f5f87;
+  --tessera-color-61: #5f5faf;
+  --tessera-color-62: #5f5fd7;
+  --tessera-color-63: #5f5fff;
+  --tessera-color-64: #5f8700;
+  --tessera-color-65: #5f875f;
+  --tessera-color-66: #5f8787;
+  --tessera-color-67: #5f87af;
+  --tessera-color-68: #5f87d7;
+  --tessera-color-69: #5f87ff;
+  --tessera-color-70: #5faf00;
+  --tessera-color-71: #5faf5f;
+  --tessera-color-72: #5faf87;
+  --tessera-color-73: #5fafaf;
+  --tessera-color-74: #5fafd7;
+  --tessera-color-75: #5fafff;
+  --tessera-color-76: #5fd700;
+  --tessera-color-77: #5fd75f;
+  --tessera-color-78: #5fd787;
+  --tessera-color-79: #5fd7af;
+  --tessera-color-80: #5fd7d7;
+  --tessera-color-81: #5fd7ff;
+  --tessera-color-82: #5fff00;
+  --tessera-color-83: #5fff5f;
+  --tessera-color-84: #5fff87;
+  --tessera-color-85: #5fffaf;
+  --tessera-color-86: #5fffd7;
+  --tessera-color-87: #5fffff;
+  --tessera-color-88: #870000;
+  --tessera-color-89: #87005f;
+  --tessera-color-90: #870087;
+  --tessera-color-91: #8700af;
+  --tessera-color-92: #8700d7;
+  --tessera-color-93: #8700ff;
+  --tessera-color-94: #875f00;
+  --tessera-color-95: #875f5f;
+  --tessera-color-96: #875f87;
+  --tessera-color-97: #875faf;
+  --tessera-color-98: #875fd7;
+  --tessera-color-99: #875fff;
+  --tessera-color-100: #878700;
+  --tessera-color-101: #87875f;
+  --tessera-color-102: #878787;
+  --tessera-color-103: #8787af;
+  --tessera-color-104: #8787d7;
+  --tessera-color-105: #8787ff;
+  --tessera-color-106: #87af00;
+  --tessera-color-107: #87af5f;
+  --tessera-color-108: #87af87;
+  --tessera-color-109: #87afaf;
+  --tessera-color-110: #87afd7;
+  --tessera-color-111: #87afff;
+  --tessera-color-112: #87d700;
+  --tessera-color-113: #87d75f;
+  --tessera-color-114: #87d787;
+  --tessera-color-115: #87d7af;
+  --tessera-color-116: #87d7d7;
+  --tessera-color-117: #87d7ff;
+  --tessera-color-118: #87ff00;
+  --tessera-color-119: #87ff5f;
+  --tessera-color-120: #87ff87;
+  --tessera-color-121: #87ffaf;
+  --tessera-color-122: #87ffd7;
+  --tessera-color-123: #87ffff;
+  --tessera-color-124: #af0000;
+  --tessera-color-125: #af005f;
+  --tessera-color-126: #af0087;
+  --tessera-color-127: #af00af;
+  --tessera-color-128: #af00d7;
+  --tessera-color-129: #af00ff;
+  --tessera-color-130: #af5f00;
+  --tessera-color-131: #af5f5f;
+  --tessera-color-132: #af5f87;
+  --tessera-color-133: #af5faf;
+  --tessera-color-134: #af5fd7;
+  --tessera-color-135: #af5fff;
+  --tessera-color-136: #af8700;
+  --tessera-color-137: #af875f;
+  --tessera-color-138: #af8787;
+  --tessera-color-139: #af87af;
+  --tessera-color-140: #af87d7;
+  --tessera-color-141: #af87ff;
+  --tessera-color-142: #afaf00;
+  --tessera-color-143: #afaf5f;
+  --tessera-color-144: #afaf87;
+  --tessera-color-145: #afafaf;
+  --tessera-color-146: #afafd7;
+  --tessera-color-147: #afafff;
+  --tessera-color-148: #afd700;
+  --tessera-color-149: #afd75f;
+  --tessera-color-150: #afd787;
+  --tessera-color-151: #afd7af;
+  --tessera-color-152: #afd7d7;
+  --tessera-color-153: #afd7ff;
+  --tessera-color-154: #afff00;
+  --tessera-color-155: #afff5f;
+  --tessera-color-156: #afff87;
+  --tessera-color-157: #afffaf;
+  --tessera-color-158: #afffd7;
+  --tessera-color-159: #afffff;
+  --tessera-color-160: #d70000;
+  --tessera-color-161: #d7005f;
+  --tessera-color-162: #d70087;
+  --tessera-color-163: #d700af;
+  --tessera-color-164: #d700d7;
+  --tessera-color-165: #d700ff;
+  --tessera-color-166: #d75f00;
+  --tessera-color-167: #d75f5f;
+  --tessera-color-168: #d75f87;
+  --tessera-color-169: #d75faf;
+  --tessera-color-170: #d75fd7;
+  --tessera-color-171: #d75fff;
+  --tessera-color-172: #d78700;
+  --tessera-color-173: #d7875f;
+  --tessera-color-174: #d78787;
+  --tessera-color-175: #d787af;
+  --tessera-color-176: #d787d7;
+  --tessera-color-177: #d787ff;
+  --tessera-color-178: #d7af00;
+  --tessera-color-179: #d7af5f;
+  --tessera-color-180: #d7af87;
+  --tessera-color-181: #d7afaf;
+  --tessera-color-182: #d7afd7;
+  --tessera-color-183: #d7afff;
+  --tessera-color-184: #d7d700;
+  --tessera-color-185: #d7d75f;
+  --tessera-color-186: #d7d787;
+  --tessera-color-187: #d7d7af;
+  --tessera-color-188: #d7d7d7;
+  --tessera-color-189: #d7d7ff;
+  --tessera-color-190: #d7ff00;
+  --tessera-color-191: #d7ff5f;
+  --tessera-color-192: #d7ff87;
+  --tessera-color-193: #d7ffaf;
+  --tessera-color-194: #d7ffd7;
+  --tessera-color-195: #d7ffff;
+  --tessera-color-196: #ff0000;
+  --tessera-color-197: #ff005f;
+  --tessera-color-198: #ff0087;
+  --tessera-color-199: #ff00af;
+  --tessera-color-200: #ff00d7;
+  --tessera-color-201: #ff00ff;
+  --tessera-color-202: #ff5f00;
+  --tessera-color-203: #ff5f5f;
+  --tessera-color-204: #ff5f87;
+  --tessera-color-205: #ff5faf;
+  --tessera-color-206: #ff5fd7;
+  --tessera-color-207: #ff5fff;
+  --tessera-color-208: #ff8700;
+  --tessera-color-209: #ff875f;
+  --tessera-color-210: #ff8787;
+  --tessera-color-211: #ff87af;
+  --tessera-color-212: #ff87d7;
+  --tessera-color-213: #ff87ff;
+  --tessera-color-214: #ffaf00;
+  --tessera-color-215: #ffaf5f;
+  --tessera-color-216: #ffaf87;
+  --tessera-color-217: #ffafaf;
+  --tessera-color-218: #ffafd7;
+  --tessera-color-219: #ffafff;
+  --tessera-color-220: #ffd700;
+  --tessera-color-221: #ffd75f;
+  --tessera-color-222: #ffd787;
+  --tessera-color-223: #ffd7af;
+  --tessera-color-224: #ffd7d7;
+  --tessera-color-225: #ffd7ff;
+  --tessera-color-226: #ffff00;
+  --tessera-color-227: #ffff5f;
+  --tessera-color-228: #ffff87;
+  --tessera-color-229: #ffffaf;
+  --tessera-color-230: #ffffd7;
+  --tessera-color-231: #ffffff;
+  --tessera-color-232: #080808;
+  --tessera-color-233: #121212;
+  --tessera-color-234: #1c1c1c;
+  --tessera-color-235: #262626;
+  --tessera-color-236: #303030;
+  --tessera-color-237: #3a3a3a;
+  --tessera-color-238: #444444;
+  --tessera-color-239: #4e4e4e;
+  --tessera-color-240: #585858;
+  --tessera-color-241: #626262;
+  --tessera-color-242: #6c6c6c;
+  --tessera-color-243: #767676;
+  --tessera-color-244: #808080;
+  --tessera-color-245: #8a8a8a;
+  --tessera-color-246: #949494;
+  --tessera-color-247: #9e9e9e;
+  --tessera-color-248: #a8a8a8;
+  --tessera-color-249: #b2b2b2;
+  --tessera-color-250: #bcbcbc;
+  --tessera-color-251: #c6c6c6;
+  --tessera-color-252: #d0d0d0;
+  --tessera-color-253: #dadada;
+  --tessera-color-254: #e4e4e4;
+  --tessera-color-255: #eeeeee;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.tessera-frame {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(var(--tessera-columns), var(--tessera-cell-width, 1ch));
+  grid-template-rows: repeat(var(--tessera-rows), var(--tessera-line-height, 1.2em));
+  background: var(--tessera-default-bg);
+  color: var(--tessera-default-fg);
+  font-family: var(--tessera-font-family, 'Tessera Mono', monospace);
+  font-weight: var(--tessera-font-weight, 400);
+  font-variant-ligatures: none;
+  line-height: var(--tessera-line-height, 1.2em);
+  white-space: pre;
+  isolation: isolate;
+}
+
+.tessera-row {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  position: relative;
+}
+
+.tessera-bg {
+  grid-row: 1;
+  background: var(--tessera-bg);
+}
+
+.tessera-glyph {
+  grid-row: 1;
+  position: relative;
+  color: var(--tessera-fg);
+  background: var(--tessera-bg);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.tessera-cursor {
+  position: relative;
+  background: var(--tessera-fg);
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.tessera-cursor[data-visible='false'] {
+  display: none;
+}
+
+/* Rendition classes: matching Web_html.classes_of's fixed, closed set of seven names exactly.
+   `.tessera-inverse` swaps which custom property is used for the foreground versus background
+   colour, matching the frame-content contract's rendition-class semantics. */
+
+.tessera-bold {
+  font-weight: 700;
+}
+
+.tessera-faint {
+  opacity: 0.6;
+}
+
+.tessera-invisible {
+  color: transparent;
+}
+
+.tessera-inverse {
+  color: var(--tessera-bg);
+  background: var(--tessera-fg);
+}
+
+.tessera-italic {
+  font-style: italic;
+}
+
+.tessera-strikethrough {
+  text-decoration-line: line-through;
+}
+
+.tessera-underline {
+  text-decoration-line: underline;
+}
+
+.tessera-strikethrough.tessera-underline {
+  text-decoration-line: underline line-through;
+}
+
+/* Visually hidden but present for assistive technology and automation: the accessible-text mirror
+   of each row's rendered glyphs, kept per-row so a Delta frame's replacement of one row never
+   touches another row's accessible text. */
+.tessera-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

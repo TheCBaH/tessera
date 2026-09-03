@@ -1,0 +1,11 @@
+(library
+ (name tessera_web_bridge)
+ (public_name tessera.web_bridge)
+ (modes byte native melange)
+ (libraries
+  tessera_foundation
+  tessera
+  tessera_js_adapter
+  tessera_web_rendering
+  err_trace)
+ (modules web_bridge))

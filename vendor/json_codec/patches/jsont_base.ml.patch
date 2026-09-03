@@ -1,20 +1,68 @@
---- jsont/src/jsont_base.ml	2026-08-29 16:44:49.698575873 +0000
-+++ jsont_base.ml	2026-08-29 16:45:26.406413390 +0000
-@@ -3,6 +3,13 @@
+--- jsont/src/jsont_base.ml
++++ jsont_base.ml
+@@ -3,6 +3,25 @@
     SPDX-License-Identifier: ISC
    ---------------------------------------------------------------------------*)
  
 +(* Dune/Melange overlay for Jsont_base, forked from jsont v0.3.0
 +   (https://github.com/dbuenzli/jsont, tag v0.3.0, pinned as the
-+   vendor/json_codec/jsont submodule). Melange has no Bigarray module at all,
-+   so the Rbigarray1 module below (a resizable Bigarray.Array1.t, used only
-+   by Jsont.bigarray/Array.bigarray_map, which Tessera's schema never calls)
-+   is removed. Everything else is the unmodified upstream file. *)
++   vendor/json_codec/jsont submodule). Two changes from upstream:
++
++   1. Melange has no Bigarray module at all, so the Rbigarray1 module below (a
++      resizable Bigarray.Array1.t, used only by Jsont.bigarray/Array.bigarray_map,
++      which Tessera's schema never calls) is removed.
++
++   2. Type.Id.uid (used only as a Dict lookup key, see jsont.ml's
++      Dict.mem/add/find) derived its result from Obj.Extension_constructor.id
++      (Obj.Extension_constructor.of_val ...), which raises under Melange's
++      Obj (discovered via test/web_bridge_equivalence: any Jsont.Object.mem-based
++      *decode*, not just encode, exercises this). Replaced with a plain
++      monotonic counter stamped into the generated module at Id.make time --
++      see that module's own comment for why this preserves the same lookup
++      contract under every backend.
++
++   Everything else is the unmodified upstream file. *)
 +
  (* These three things should really belong to String. *)
  
  let string_subrange ?(first = 0) ?last s =
-@@ -138,39 +145,6 @@
+@@ -95,19 +114,31 @@
+   type (_, _) eq = Equal : ('a, 'a) eq
+   module Id = struct
+     type _ id = ..
+-    module type ID = sig type t type _ id += Id : t id end
++    module type ID = sig type t type _ id += Id : t id val uid : int end
+     type 'a t = (module ID with type t = 'a)
+ 
++    (* Melange overlay: upstream derives [uid] from [Obj.Extension_constructor.id
++       (Obj.Extension_constructor.of_val A.Id)], which Melange's [Obj] does not
++       support (it raises at run time -- see this file's provenance header). [uid]
++       is only ever used as a fast, collision-tolerant [Dict] lookup key (see
++       jsont.ml's [Dict.mem]/[add]/[find]): a hit is always confirmed by
++       [provably_equal]'s GADT match before being trusted, so [uid] itself only
++       needs to be distinct per [make] call, not derived from any particular
++       runtime representation. A plain monotonic counter, stamped into the
++       generated module at [make] time, satisfies that under every backend. *)
++    let counter = ref 0
++
+     let make (type a) () : a t =
+-      (module struct type t = a type _ id += Id : t id end)
++      incr counter;
++      let uid = !counter in
++      (module struct type t = a type _ id += Id : t id let uid = uid end)
+ 
+     let provably_equal
+         (type a b) ((module A) : a t) ((module B) : b t) : (a, b) eq option
+       =
+       match A.Id with B.Id -> Some Equal | _ -> None
+ 
+-    let uid (type a) ((module A) : a t) =
+-      Obj.Extension_constructor.id (Obj.Extension_constructor.of_val A.Id)
++    let uid (type a) ((module A) : a t) = A.uid
+   end
+ end
+ 
+@@ -138,39 +169,6 @@
      v
  end
  

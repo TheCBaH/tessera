@@ -1,0 +1,32 @@
+; Playwright workspace + browser-loadable OCaml backends for the shared browser driver, HTML
+; target, and Playwright tests. This suite needs a Node runtime and the locked
+; npm workspace (`npm ci` in this directory, see test/README.md), so its runtime targets are opt-in
+; rather than part of `@runtest` -- mirroring test/node_pty's own opt-in convention.
+
+(executable
+ (name jsoo_bridge)
+ (modules jsoo_bridge)
+ (modes js)
+ (libraries tessera_test_web_bridge_runner js_of_ocaml))
+
+; A confirmed, resolved choice: `strings` on the installed dune 3.24.2 binary confirms `module_systems` accepts
+; `(esm .mjs)`, emitting real ES modules (`import`/`export`) loadable via `<script type="module">`/
+; dynamic `import()` with no bundler or shim -- distinct from test/node_pty/dune's existing
+; `(module_systems commonjs)`, which stays untouched (that suite is Node-only and correct as-is).
+
+(melange.emit
+ (target melange-output)
+ (alias web-render-melange)
+ (modules melange_bridge)
+ (module_systems
+  (esm mjs))
+ (libraries tessera_test_web_bridge_runner))
+
+; The per-case ordered-frame JSONL golden generator (native only). An explicit developer command
+; (`make web-render-gen-goldens`), not run by `@runtest`.
+
+(executable
+ (name gen_goldens)
+ (modes exe)
+ (modules gen_goldens)
+ (libraries tessera_test_trace_fixture tessera_test_web_bridge_runner))

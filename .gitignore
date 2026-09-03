@@ -1,3 +1,7 @@
 _build/
 /.devcontainer/devcontainer-lock.json
 /test/node_pty/node_modules/
+/test/web_render_playwright/node_modules/
+/test/web_render_playwright/test-results/
+/test/web_render_playwright/playwright-report/
+/test/web_render_playwright/blob-report/

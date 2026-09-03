@@ -1,0 +1,10 @@
+{
+  "columns": 40,
+  "rows": 10,
+  "events": [
+    {
+      "kind": "data",
+      "bytes_base64": "G1syShtbSFNDUk9MTCBTVEFSVA0Kb25lDQp0d28NCnRocmVlDQobWzJBG1syS3JlZHJhd24gdHdvDQoNChtdMDt0ZXNzZXJhLW5vZGUtcHR5LWRvbmUH"
+    }
+  ]
+}

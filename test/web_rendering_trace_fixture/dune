@@ -1,0 +1,10 @@
+; Portable (byte/native/melange) decoder for test/node_pty/traces/*.json content, shared by
+; test/web_rendering_traces (native replay, reading the files itself) and
+; test/web_bridge_equivalence (native/js_of_ocaml/Melange corpus, fed embedded trace text so no
+; backend needs file I/O). See trace_fixture.ml's header.
+
+(library
+ (name tessera_test_trace_fixture)
+ (modes byte native melange)
+ (libraries tessera_jsont tessera_jsont_bytesrw)
+ (modules trace_fixture))

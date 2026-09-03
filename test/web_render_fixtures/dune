@@ -1,0 +1,15 @@
+; A native-only OCaml executable that generates test/web_render_playwright/fixtures/*.json, a
+; committed synthetic edge-case frame corpus (see gen_fixtures.ml). An explicit developer command
+; (`make web-render-gen-fixtures`), like `make node-pty-capture-traces`; review the diff before
+; committing regenerated fixtures. Not run automatically by `@runtest`.
+
+(executable
+ (name gen_fixtures)
+ (modes exe)
+ (modules gen_fixtures)
+ (libraries
+  tessera_foundation
+  tessera_model
+  tessera_renderer
+  tessera_web_rendering
+  err_trace))

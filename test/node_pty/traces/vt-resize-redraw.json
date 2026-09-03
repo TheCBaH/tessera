@@ -1,0 +1,19 @@
+{
+  "columns": 40,
+  "rows": 10,
+  "events": [
+    {
+      "kind": "data",
+      "bytes_base64": "G1syShtbSFJFU0laRSBXQUlUSU5HDQo="
+    },
+    {
+      "kind": "resize",
+      "columns": 60,
+      "rows": 16
+    },
+    {
+      "kind": "data",
+      "bytes_base64": "DQobWzJKG1tIUkVTSVpFIEFQUExJRUQ6IDE2IDYwDQobXTA7dGVzc2VyYS1ub2RlLXB0eS1kb25lBw=="
+    }
+  ]
+}

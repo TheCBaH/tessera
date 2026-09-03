@@ -18,6 +18,12 @@ plus the JSOO and Melange runtime-fixture targets in this directory.
 | `test/web_rendering` | `@test-web-rendering` | `tessera_test_web_rendering` | `Web_frame.of_outcome`/`rows_of_cells`/`validate` (reset/delta, upgrade-to-reset, wide-glyph pairing, background/glyph invariants), `Web_html`/`Web_canvas` projections, `Web_json` envelope encode/decode goldens, and a QCheck properties executable (`validate` always holds, a reset frame matches its source snapshot via an independent projection-verifier, generation monotonicity) |
 | `test/json_codec` | `@test-json-codec` | n/a (`corpus` executables in `upstream/`, `vendored/`) | The vendored, Melange-compatible `tessera_jsont`/`tessera_bytesrw`/`tessera_jsont_bytesrw` (`vendor/json_codec`) against the real opam `jsont`/`bytesrw`: a shared corpus module (including a real multi-byte UTF-8 grapheme, not just ASCII) compiled once per package family (native only, since both are `(wrapped false)` and cannot link into one executable) and diffed; the vendored corpus is also compiled to JSOO and Melange and executed with plain `node` (no `npm`), diffed against its own native output, so cross-runtime byte-identity is a real, executed check, not a compile-only one. Each printed line is hex-encoded before comparison, working around a real Melange `caml_io.js` stdout bug (a non-ASCII JS string code unit is re-encoded as UTF-8 text on write, inflating its byte count) documented in `corpus.ml`, unrelated to the codec's own (correct) encoded bytes |
 | `test/web_rendering_codec` | `@test-web-rendering-codec` | n/a (`corpus` executable) | The same real, executed cross-runtime check as `test/json_codec`, but for `lib/web_rendering` itself: a single row is built by driving a real `Tessera_renderer` history (`Set_style`/`Print` updates, including a real multi-byte UTF-8 grapheme) through `Web_frame.of_outcome`, exercising every colour kind and rendition flag as they actually co-occur on a cell (not hand-assembled, so a background span's and its glyph's styles can never disagree the way a hand-built record could), then encoded to both HTML and Canvas JSON envelopes via `Web_json`, compiled natively/JSOO/Melange, executed with plain `node`, and diffed byte-for-byte (each line hex-encoded, same reason as `test/json_codec`). `@jsoo`/`@tessera-melange` (`make jsoo`/`make melange`) depend on this directory's js/melange artifacts, so those targets actually build and run `lib/web_rendering` under those backends rather than only the runtime-fixture smoke targets |
+| `test/web_rendering_trace_fixture` | n/a (library) | `tessera_test_trace_fixture` | Portable (byte/native/melange) decoder for `test/node_pty/traces/*.json` *content* (no file I/O, so it also compiles under Melange); shared by `test/web_rendering_traces` and `test/web_bridge_equivalence` |
+| `test/web_rendering_traces` | `@test-web-rendering-traces` | n/a (`replay` executable) | Native (no PTY, no Node) replay of the committed `test/node_pty/traces/*.json` real-terminal-output fixtures through `Tessera_js_adapter.Js_adapter` and `Web_frame.of_outcome`, encoding the final HTML/Canvas target-frame JSON via `Web_json` and diffing against `goldens/*.out`. Proves the web-rendering projection against real dialog/whiptail/shell output on every build, independent of whether `test/node_pty`'s JSOO/Melange PTY suite is built. See "Canonical real-terminal traces" below |
+| `test/web_bridge_equivalence` | `@test-web-bridge-equivalence` | n/a (`corpus` executable) | The same real, executed cross-runtime check as `test/web_rendering_codec`, but for `lib/web_bridge`'s `push`/`resize`/`finish` surface: replays each of the six committed traces (embedded as string literals in `embedded_traces.ml`, since Melange has no file I/O) through the bridge for both targets, printing every emitted frame (not just the last -- see corpus.ml), compiled natively/JSOO/Melange, executed with plain `node`, diffed byte-for-byte. This is what surfaced a real Melange gap in the vendored `jsont`'s object *decode* path (see "Canonical real-terminal traces" below) -- `test/web_rendering_codec` only ever exercised encode |
+| `test/web_bridge_runner` | n/a (library) | `tessera_test_web_bridge_runner` | Portable (`byte`/`native`/`melange`) wrapper around `Tessera_web_bridge.Web_bridge`, taking a `target` string so one wrapper serves both the HTML and Canvas targets; bakes the canonical create-then-resize bootstrap sequence into `create` so no caller can diverge from it. Shared by `test/web_render_playwright`'s browser backends and its native JSONL golden generator |
+| `test/web_render_fixtures` | n/a (`gen_fixtures` executable) | n/a | Native-only generator for `test/web_render_playwright/fixtures/*.json`, a committed synthetic edge-case frame corpus (colours, every rendition class individually and combined, a coloured blank background, a combining grapheme, a wide glyph at a row boundary, cursor visible/invisible/pending-wrap, a reset-then-delta row replacement, a cursor-only delta, and a title-only delta) built by driving real `Tessera_renderer` histories, like `test/web_rendering_codec`'s corpus. An explicit developer command (`make web-render-gen-fixtures`); see "The browser driver and Playwright" below |
+| `test/web_render_playwright` | n/a (Playwright + Node) | n/a | The browser driver, HTML target, and Playwright structural/screenshot suite; see "The browser driver and Playwright" below |
 | `test/core` | `@test-core` | `tessera_test_core` | `Session.ingest`/`finish`, resize ordering/observation, retained sessions |
 | `test/integration` | `@test-integration` | `tessera_test_integration` | Full `Patch → Repaint.compile → Encoder.encode → Decoder.feed → Renderer.apply` round trip |
 | `test/proxy_linux` | `@test-proxy-linux` | `tessera_test_proxy_linux` | Deterministic fake-platform proxy contract: byte-exact bidirectional relay, typed ingest failure ordering, observer records, resize and direct-renderer snapshot equivalence |
@@ -169,6 +175,194 @@ This suite needs a Node runtime and the locked node-pty workspace (`make node-pt
 into `@runtest`/`make test`, so a normal OCaml-only build never needs Node. `.github/workflows/build.yml`
 runs `make node-pty-install` (cached across runs by `test/node_pty/package-lock.json`'s hash, since
 `npm ci` recompiles node-pty's native addon from source) and `make test-node-pty` as explicit CI steps.
+
+### Canonical real-terminal traces
+
+`test/node_pty/run.js`'s `TESSERA_NODE_PTY_WRITE_TRACES=1` environment variable (`make
+node-pty-capture-traces`) is an opt-in developer command, independent of the `TESSERA_NODE_PTY_WRITE_GOLDENS`
+snapshot-golden regeneration above: it additionally records the ordered `data`/`resize` events each
+of the six cases actually produced -- coalescing `data` at control-event (resize) boundaries, since
+node-pty's own OS-dependent read chunking is not a semantic protocol worth pinning -- and commits them
+to `test/node_pty/traces/<name>.json` (initial geometry, base64-encoded byte spans, explicit resize
+events, cut off at the same OSC completion-sentinel boundary `snapshotText` already waits for, so
+child-exit/cleanup noise never leaks into the fixture). Like any other golden regeneration, review the
+diff before committing.
+
+`test/web_rendering_traces` then replays those committed traces natively -- no PTY, no Node, no
+js_of_ocaml/Melange runtime -- through the same `Tessera_js_adapter.Js_adapter` push/resize/finish
+surface the capturing bridge used (with `test/node_pty_bridge/bridge.ml`'s own fixed, generous
+policy, since that is what actually produced the committed traces), projects the final outcome
+through `Web_frame.of_outcome`/`Web_json`, and diffs the resulting HTML/Canvas target-frame JSON
+against `test/web_rendering_traces/goldens/*.out`. Unlike `@test-jsoo-pty`/`@test-melange-pty`, this
+replay is part of `@runtest`/`make test`: it validates the web-rendering projection against real
+dialog/whiptail/shell output on every ordinary OCaml-only build, without needing Node at all.
+
+### `lib/web_bridge` and the JSOO/Melange equivalence check
+
+`lib/web_bridge` (`Tessera_web_bridge.Web_bridge`, `byte`/`native`/`melange` modes) is
+the boundary bridge made real: one thin `create`/`push`/`resize`/`finish`
+surface that does the whole pipeline per call (`Js_adapter` ingest, `Web_frame.of_outcome`, a
+`target`-selected `Web_html`/`Web_canvas` projection, `Web_json` encode) and returns the canonical JSON
+string directly. Its target (`Html`/`Canvas`) is fixed for a bridge's whole lifetime, matching how a
+browser page mounts exactly one target. It has no `js_of_ocaml`/Melange-specific type in its signature,
+so (like `Tessera_js_adapter.Js_adapter`) it compiles unchanged under all three modes; a real browser
+integration's only backend-specific code is a thin `Js.export`/re-export shim per backend, mirroring
+`test/node_pty/jsoo_runner.ml`/`melange_runner.ml` -- see `test/web_bridge_runner` and
+`test/web_render_playwright`'s `jsoo_bridge.ml`/`melange_bridge.ml`, the browser driver
+that actually calls it, described below.
+
+`test/web_bridge_equivalence` proves this bridge is byte-identical across backends: it replays the same
+six committed traces (embedded as string literals in `embedded_traces.ml`, generated once from
+`test/node_pty/traces/*.json` and committed like `lib/terminfo/bundled.ml`'s own checked-in data,
+since Melange has no file I/O) through `Web_bridge` for both targets, printing every emitted frame, and
+diffs native/JSOO/Melange output byte-for-byte -- the same `test/web_rendering_codec`-style corpus
+pattern, but exercising the bridge's actual `push`/`resize`/`finish` calls (and, unlike
+`test/web_rendering_codec`, JSON *decode*, not just encode: `Trace_fixture.of_string` decodes the
+embedded fixture JSON before replay).
+
+That decode call is what surfaced a real, previously-undiscovered Melange gap in the vendored `jsont`
+(`vendor/json_codec/patches/jsont_base.ml.patch`): `Jsont`'s internal `Type.Id.uid` (used only as a
+`Dict` lookup key by `Jsont.Object.mem`'s machinery) derived its result from
+`Obj.Extension_constructor.id (Obj.Extension_constructor.of_val ...)`, which raises under Melange's
+`Obj`. `test/web_rendering_codec`'s corpus never decoded a JSON object under Melange, only encoded one,
+so this had never been exercised. The patch replaces `uid` with a plain monotonic counter stamped into
+the generated module at `Type.Id.make` time -- safe because every lookup is confirmed by
+`provably_equal`'s GADT match before being trusted, so `uid` only needs to be distinct per `make` call,
+not derived from any particular runtime representation. `Web_json.decode_html_frame`/`decode_canvas_frame`
+were exposed to the exact same gap (untested under Melange until now); this patch fixes them too.
+
+### The browser driver and Playwright
+
+The shared browser driver, the plain-HTML target, and Playwright
+structural/screenshot tests live in two places: `web/` at the repository root (shipped,
+framework-free browser assets, loaded by a real page via plain `<script>` tags, no bundler) and
+`test/web_render_playwright/` (the Playwright workspace and browser-loadable OCaml backends that
+drive them in tests).
+
+`web/tessera-decode.js` is the JS-side trust boundary: `decodeHtmlEnvelope` mirrors, rather than
+solely implements, the exact structural contract `lib/web_rendering/web_json.ml`'s
+`html_envelope_jsont`/`meta_jsont` already enforce -- schema/version/target, geometry agreement, row
+uniqueness/range, background tiling and glyph non-overlap (walked in wire order, not sorted, matching
+the OCaml decoder exactly), reset completeness, cursor bounds, and the canonical
+non-negative-decimal syntax `^(0|[1-9][0-9]*)$` `generation`/`lineage_id` must match -- the same
+closed `fg`/`bg`/class set `Web_html.valid_color_value`/`valid_class` accept, duplicated here
+deliberately for a payload that, in a future transport, may not come from a trusted same-process
+OCaml call. `web/tessera-trace-decoder.js` is the JS-side inverse of `test/node_pty/run.js`'s trace
+capture: `decodeTraceBytes` turns a trace event's base64 `data` span back into the same kind of JS
+string `node-pty`'s own `data` event hands to a bridge's `push`.
+
+`web/tessera-driver.js`'s `TesseraDriver` is the rollback-safe *and* recoverable resync state
+machine: `{lineageId, generation, awaitingReset}`
+tracked as `BigInt` (never JS `number`, which cannot represent every value a wire integer can), fenced
+at both the generation level (a stale or duplicate generation is dropped unconditionally, *including*
+a stale reset -- a full-content reset is still rejected if older than what's already painted) and the
+lineage level (a lineage no newer than the tracked one is dropped unconditionally, regardless of
+frame kind -- the defence against a delayed reset from a retired lineage rolling the DOM back after
+recovery). It also tracks the `meta.geometry`/`meta.active` established by the last accepted `reset`
+and rejects any `delta` claiming either one changed -- `Web_frame.of_outcome` always upgrades a resize
+or active-screen switch to a `reset` (`lib/web_rendering/web_frame.ml`), so a `delta` disagreeing with
+the tracked geometry/screen is a protocol violation, not a smaller update; the driver drops it,
+requests resync, and never draws it onto the old grid/screen. The only supported recovery from a
+detected gap is a `reset` under a new, strictly greater lineage id; there is no in-band "resend
+generation N" request. The driver only dispatches to a `target` implementing
+`mount`/`reset`/`draw`/`setMetrics`/`dispose` -- no DOM/terminal logic lives in the driver itself,
+which is what makes `test/web_render_playwright/tests/driver.node.test.js` (plain `node --test`, no
+browser) possible: it drives the full resync state machine, including the gap-then-new-lineage
+recovery sequence, rejection of a delayed reset from a retired lineage after that recovery, and
+rejection of a geometry- or active-screen-changing delta, against a fake `target` that only records
+calls. `document.title` is set from
+`meta.title` on every accepted `reset`/`draw`, guarded by `typeof document !== 'undefined'` so the
+driver stays usable in that Node-only test.
+
+`web/tessera-html-target.js`'s `TesseraHtmlTarget` builds DOM nodes from `Web_html.t`'s structured
+frame data via `createElement`/`className`/`style.setProperty`/`textContent` only -- never
+`innerHTML`, so no HTML-escaping logic is needed on the JS side at all -- matching
+`lib/web_rendering/web_html.ml`'s `add_row`/`add_background`/`add_glyph`/`add_cursor` exactly (same
+classes, `data-*` attributes, CSS custom-property colours, and explicit grid placement). `reset`
+clears every tracked row, including any DOM node left over from a larger prior geometry; `draw`
+replaces only the named rows plus the cursor, never touching an untouched row's DOM node (asserted by
+identity, not just content, in the Playwright specs). `probe()` is test-only: it reconstructs
+`{columns, row_count, rows, cursor}` by reading back the live DOM, the oracle every structural
+assertion in `test/web_render_playwright` compares against. `web/tessera.css` is the separately
+versioned stylesheet: `.tessera-frame` is a real CSS Grid sized from `--tessera-columns`/`-rows`;
+`.tessera-row` spans every real column before `grid-template-columns: subgrid` lets its own children
+place via their own inline `grid-column`; the full 256-colour xterm palette is committed as static
+`--tessera-color-0`..`-255` custom properties. `setMetrics`'s `cellWidth`/`cellHeight`/`lineHeight`
+are stored with an explicit `px` unit (a bare unitless number in a `<length>` custom-property
+position is invalid CSS and silently collapses the whole grid track list to nothing -- caught by an
+actual screenshot test, not by any DOM-structure assertion, which is exactly why a screenshot oracle
+is required and not merely a nice-to-have).
+
+`test/web_bridge_runner` (`byte`/`native`/`melange`) wraps `Tessera_web_bridge.Web_bridge` behind a
+`target:string -> lineage_id:int -> columns:int -> rows:int -> string` `create`, baking the
+canonical create-then-resize bootstrap sequence into itself (mirroring
+`test/node_pty_bridge/bridge.ml`/`test/web_rendering_traces/replay.ml`'s own "create then an explicit
+initial resize" sequence) so the native golden generator and every browser backend share one
+implementation and cannot silently diverge. `test/web_render_playwright/jsoo_bridge.ml` and
+`melange_bridge.ml` are the thin backend-specific export shims around it, mirroring
+`test/node_pty/jsoo_runner.ml`/`melange_runner.ml`; the Melange side compiles via a *new*
+`(module_systems (esm mjs))` `melange.emit` stanza (confirmed against this repository's installed
+dune 3.24.2 binary, distinct from `test/node_pty/dune`'s existing `(module_systems commonjs)`, which
+stays untouched), emitting real ES modules loadable via a browser's native `import()` -- no bundler.
+
+Because dune's Melange ESM output uses bare package-name specifiers for any *installed* library
+(`import ... from "tessera.foundation/limits.mjs"`, mirroring the `node_modules/<package>/...`
+directory tree dune also emits inside the target), and a browser's native module loader accepts only
+relative/absolute URL specifiers, `test/web_render_playwright/server.js` (a plain Node `http` static
+server, no Express, no bundler) generates a `<script type="importmap">` from that emitted
+`node_modules` directory listing and injects it into `pages/index.html` before any other script --
+the standard, declarative, non-bundling way to teach a browser the same mapping dune's directory
+layout already encodes. Modules belonging to the project itself (no `public_name`, e.g.
+`bridge_runner.mjs`, `melange_bridge.mjs`) already use plain relative imports and need no map entry.
+`pages/index.html`'s `window.TesseraBackends.load('jsoo' | 'melange')` is the backend selector every
+Playwright spec uses; a dedicated smoke test (`tests/smoke.spec.js`) loads each backend and proves
+`create`/`push`/`resize`/`finish` are callable with their documented arguments before any replay test
+depends on them (a bare `typeof` check would miss an under/over-curried export -- jsoo's exported-
+function wrapper and Melange's `unit -> 'a` representation both report misleading JS `Function.length`
+values, so the smoke test instead calls each with its real argument count and checks the result
+decodes).
+
+`test/web_render_fixtures/gen_fixtures.ml` (native only, `make web-render-gen-fixtures`) commits the
+synthetic edge-case frame corpus (`test/web_render_playwright/fixtures/*.json`) that
+`tests/fixtures.spec.js` loads directly, bypassing the bridge/trace machinery entirely -- proving the
+DOM/CSS mapping and `document.title` updates in isolation, including the round-trip-tricky cases (a
+coloured blank background via `Erase`, not a printed space; a reset-then-delta that replaces one full
+row while leaving another untouched; a delta that only moves the cursor; a reset-then-delta that
+changes only the title, isolating that path from row/cursor updates, since neither `probe()` nor a
+screenshot can observe `document.title`).
+
+`test/web_render_playwright/gen_goldens.ml` (native only, `make web-render-gen-goldens`) generates
+`goldens/<case>-html.frames.jsonl`: every frame `test/web_bridge_runner`'s canonical sequence emits
+for each of the six committed `test/node_pty/traces/*.json` cases (`lineage_id:1`, one session per
+case), one JSON line per frame, in order. `tests/web_render.spec.js` replays the same six traces
+through both backends and checks **two independent oracles for two distinct properties** (a JSONL
+golden's last line is `finish()`'s own small delta and cannot be deep-equal to a full reconstructed
+DOM): the captured ordered frame sequence against this JSONL golden (wire-stream fidelity), and
+`probe()`'s fully-reconstructed DOM against the *existing* `test/web_rendering_traces/goldens/
+<case>.out` file's `html:` line -- an independent full reset built straight from the final terminal
+snapshot, never derived from the JSONL sequence -- including `document.title` against that same
+golden's `meta.title`. Then a final-state screenshot per case x backend, plus mid-replay checkpoint
+screenshots for the jsoo backend on `vt-resize-redraw`/`vt-scroll-redraw`/`vt-form-edit` (cross-backend
+equivalence for those intermediate frames is already proven structurally by
+`test/web_bridge_equivalence`'s every-frame assertion, so it is not duplicated per backend here).
+
+This suite needs a Node runtime, the locked npm workspace, and a pinned Chromium install
+(`make playwright-install`, i.e. `cd test/web_render_playwright && npm ci && ./node_modules/.bin/
+playwright install chromium`), so `make test-web-render` stays a separate target from `@runtest`/
+`make test`/`make check`, like `make test-node-pty`. It runs `tests/*.node.test.js` first (fastest, no
+browser), then builds the jsoo/Melange browser artifacts, then the full Playwright matrix.
+`.github/workflows/build.yml` runs it with two independent caches -- one for `node_modules` (keyed by
+this workspace's own `package-lock.json` hash) and one for Playwright's browser download directory
+(keyed by OS/architecture plus the locked `@playwright/test` version, so a version bump invalidates it
+on its own) -- mirroring, but not sharing, the `node-pty` cache above.
+
+Screenshot tests run one pinned Chromium version (the locked `@playwright/test` binary,
+`./node_modules/.bin/playwright install chromium`) in this project's devcontainer/CI image, with the
+vendored `@fontsource/jetbrains-mono` font, a fixed viewport, `deviceScaleFactor: 1`, and animations
+disabled (`playwright.config.js`). Baselines are committed from that same environment; browser/font
+variation is expected, and baseline regeneration outside it is not accepted -- refresh them
+deliberately with `make playwright-update-screenshots` (like `test/proxy_tmux/regenerate_goldens.sh`,
+never run in CI) and review the diff before committing.
 
 ## Running one layer
 

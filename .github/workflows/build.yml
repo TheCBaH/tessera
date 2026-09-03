@@ -80,6 +80,36 @@ jobs:
     - name: node-pty test
       run: |
         ${{ env.EXEC }} make test-node-pty
+    # The Playwright suite (test/web_render_playwright) uses two independent caches, mirroring
+    # the node-pty cache above but split in two since this workspace has two
+    # separate, independently-refreshed downloads -- the locked npm packages (node_modules, keyed by
+    # this workspace's own package-lock.json hash) and the pinned Chromium browser binary (a runner-
+    # side download directory, `~/.cache/ms-playwright`, keyed by OS/architecture plus the locked
+    # @playwright/test version so a version bump in package.json invalidates it on its own, without
+    # needing a new node_modules install too).
+    - name: web-render npm cache
+      id: web-render-npm-cache
+      uses: actions/cache@v5
+      with:
+        path: test/web_render_playwright/node_modules
+        key: web-render-npm-${{ runner.os }}-${{ matrix.platform }}-${{ hashFiles('test/web_render_playwright/package-lock.json') }}
+    - name: web-render npm install
+      if: steps.web-render-npm-cache.outputs.cache-hit != 'true'
+      run: |
+        ${{ env.EXEC }} make web-render-npm-install
+    - name: web-render playwright browser cache
+      id: web-render-browser-cache
+      uses: actions/cache@v5
+      with:
+        path: ~/.cache/ms-playwright
+        key: web-render-playwright-browser-${{ runner.os }}-${{ matrix.platform }}-1.62.1
+    - name: web-render playwright browser install
+      if: steps.web-render-browser-cache.outputs.cache-hit != 'true'
+      run: |
+        ${{ env.EXEC }} make playwright-browser-install
+    - name: web-render test
+      run: |
+        ${{ env.EXEC }} make test-web-render
     - name: format-check
       run: |
         ${{ env.EXEC }} make format-check

@@ -1,0 +1,66 @@
+<title>Tessera web-render Playwright harness</title>
+<!--IMPORTMAP-->
+<link rel="stylesheet" href="/web/tessera.css" />
+<style>
+  html,
+  body {
+    margin: 0;
+    background: #1e1e1e;
+  }
+  #host {
+    display: inline-block;
+  }
+</style>
+<div id="host"></div>
+
+<script src="/web/tessera-decode.js"></script>
+<script src="/web/tessera-trace-decoder.js"></script>
+<script src="/web/tessera-driver.js"></script>
+<script src="/web/tessera-html-target.js"></script>
+
+<script>
+  // Backend selection: the page itself has no backend-specific logic beyond this loader -- a browser
+  // test page chooses one at load time, and otherwise contains no backend-specific logic. Both
+  // backends resolve to the same {create, push, resize, finish} shape, with the same argument/return
+  // types (int/string), matching
+  // test/web_bridge_runner/bridge_runner.mli exactly.
+  window.TesseraBackends = {
+    load(name) {
+      if (name === 'jsoo') return window.TesseraBackends._loadJsoo();
+      if (name === 'melange') return window.TesseraBackends._loadMelange();
+      return Promise.reject(new Error('unknown backend: ' + name));
+    },
+    _loadJsoo() {
+      return new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = '/jsoo/jsoo_bridge.bc.js';
+        script.onload = () => {
+          if (
+            typeof window.create !== 'function' ||
+            typeof window.push !== 'function' ||
+            typeof window.resize !== 'function' ||
+            typeof window.finish !== 'function'
+          ) {
+            reject(new Error('jsoo backend did not export create/push/resize/finish'));
+            return;
+          }
+          resolve({ create: window.create, push: window.push, resize: window.resize, finish: window.finish });
+        };
+        script.onerror = () => reject(new Error('failed to load jsoo backend script'));
+        document.head.appendChild(script);
+      });
+    },
+    async _loadMelange() {
+      const module = await import('/melange/test/web_render_playwright/melange_bridge.mjs');
+      if (
+        typeof module.create !== 'function' ||
+        typeof module.push !== 'function' ||
+        typeof module.resize !== 'function' ||
+        typeof module.finish !== 'function'
+      ) {
+        throw new Error('melange backend did not export create/push/resize/finish');
+      }
+      return { create: module.create, push: module.push, resize: module.resize, finish: module.finish };
+    },
+  };
+</script>

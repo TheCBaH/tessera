@@ -1,0 +1,10 @@
+{
+  "name": "tessera-web-render-playwright-tests",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Playwright structural/screenshot workspace for the shared browser driver, HTML target, and JSOO/Melange bridges. Not an opam dependency; see test/README.md.",
+  "dependencies": {
+    "@playwright/test": "1.62.1",
+    "@fontsource/jetbrains-mono": "5.3.0"
+  }
+}

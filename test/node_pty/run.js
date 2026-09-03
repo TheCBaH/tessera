@@ -35,7 +35,15 @@ const Bridge = require(path.resolve(bridge));
 
 const FIXTURE = path.join(__dirname, 'fixture.sh');
 const GOLDENS_DIR = path.join(__dirname, 'goldens');
+const TRACES_DIR = path.join(__dirname, 'traces');
 const REGENERATE = process.env.TESSERA_NODE_PTY_WRITE_GOLDENS === '1';
+// Opt-in developer command (see test/README.md's "Canonical real-terminal traces" section):
+// captures the ordered data/resize events each case actually produced
+// into test/node_pty/traces/<name>.json, a reviewed, versioned fixture that
+// test/web_rendering_traces replays natively (no PTY, no Node) to prove the web-rendering
+// projection against real dialog/whiptail/shell output. Independent of REGENERATE: capturing a
+// trace neither reads nor writes the snapshotText goldens above.
+const CAPTURE_TRACES = process.env.TESSERA_NODE_PTY_WRITE_TRACES === '1';
 const SCENARIO_TIMEOUT_MS = 30000;
 const POLL_INTERVAL_MS = 50;
 const COLUMNS = 40;
@@ -127,6 +135,45 @@ function readFileIfPresent(file) {
   }
 }
 
+// A trace recorder for one case's replayable events. `data` chunks are node-pty's own OS-dependent
+// read boundaries, not a semantic protocol -- buffered here and flushed into one `data` event
+// wherever a control event (a resize, or the end of capture) actually breaks the stream -- this
+// preserves byte order but deliberately does not preserve arbitrary node-pty callback chunk
+// boundaries, since those are an OS/timing artifact, not a semantic protocol worth pinning.
+// node-pty decodes PTY output as `utf8` by default
+// (matching how the same string later reaches the OCaml bridge across the JSOO/Melange boundary), so
+// `Buffer.from(data, 'utf8')` recovers the exact original bytes to encode.
+function traceRecorder() {
+  let pendingData = '';
+  const events = [];
+  let closed = false;
+  return {
+    data(chunk) {
+      if (!closed) pendingData += chunk;
+    },
+    resize(columns, rows) {
+      if (closed) return;
+      if (pendingData) {
+        events.push({ kind: 'data', bytes_base64: Buffer.from(pendingData, 'utf8').toString('base64') });
+        pendingData = '';
+      }
+      events.push({ kind: 'resize', columns, rows });
+    },
+    // Called exactly once, at the OSC completion-sentinel boundary the live snapshot already waits
+    // for: everything pushed to the Bridge up to and including that point is in scope, and later
+    // data (child cleanup/exit noise) must not leak into the committed fixture.
+    finish() {
+      if (closed) return events;
+      closed = true;
+      if (pendingData) {
+        events.push({ kind: 'data', bytes_base64: Buffer.from(pendingData, 'utf8').toString('base64') });
+        pendingData = '';
+      }
+      return events;
+    },
+  };
+}
+
 function runCase(testCase) {
   const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tessera-node-pty-'));
   const resultFile = path.join(workDir, 'result');
@@ -154,11 +201,13 @@ function runCase(testCase) {
     env,
   });
 
+  const trace = CAPTURE_TRACES ? traceRecorder() : null;
   let exited = false;
   let pushFailure = null;
   child.onData((data) => {
     const error = Bridge.push(data);
     if (error && !pushFailure) pushFailure = new Error(`push failed: ${error}`);
+    if (trace) trace.data(data);
   });
   child.onExit(() => {
     exited = true;
@@ -194,6 +243,7 @@ function runCase(testCase) {
       child.resize(testCase.resize.columns, testCase.resize.rows);
       const resizeError = Bridge.resize(testCase.resize.columns, testCase.resize.rows);
       if (resizeError) throw new Error(`resize failed: ${resizeError}`);
+      if (trace) trace.resize(testCase.resize.columns, testCase.resize.rows);
       // Let the SIGWINCH this resize raises actually reach the child before its next read -- node-pty's
       // resize() issues the ioctl synchronously, but signal delivery to the child process is not
       // synchronous with that call returning.
@@ -215,6 +265,15 @@ function runCase(testCase) {
       SCENARIO_TIMEOUT_MS
     );
     if (pushFailure) throw pushFailure;
+
+    if (trace) {
+      const events = trace.finish();
+      fs.mkdirSync(TRACES_DIR, { recursive: true });
+      fs.writeFileSync(
+        path.join(TRACES_DIR, `${testCase.name}.json`),
+        JSON.stringify({ columns: COLUMNS, rows: ROWS, events }, null, 2) + '\n'
+      );
+    }
 
     const resultContents = readFileIfPresent(resultFile);
     if (resultContents === null) throw new Error('fixture signalled done without writing a result file');
@@ -267,7 +326,8 @@ async function main() {
       );
     }
     const status = compareGolden(testCase, snapshot);
-    process.stdout.write(`${testCase.name}: result and snapshot golden ${status}\n`);
+    const traceNote = CAPTURE_TRACES ? '; trace captured' : '';
+    process.stdout.write(`${testCase.name}: result and snapshot golden ${status}${traceNote}\n`);
   }
 }
 

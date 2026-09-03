@@ -1,0 +1,61 @@
+; Native replay of the committed test/node_pty/traces/*.json fixtures (captured by
+; test/node_pty/run.js's opt-in TESSERA_NODE_PTY_WRITE_TRACES mode) against the pure OCaml
+; Tessera_web_rendering projection: no PTY, no Node, no js_of_ocaml/Melange runtime. See
+; test/README.md's "Canonical real-terminal traces" section -- every dialog/whiptail/VT/
+; resize/shell-session case validates the web projection (HTML/CSS token and Canvas op generation)
+; even when neither compiled JS backend is built.
+
+(executable
+ (name replay)
+ (modes exe)
+ (modules replay)
+ (libraries
+  tessera_foundation
+  tessera
+  tessera_test_support
+  tessera_js_adapter
+  tessera_web_rendering
+  tessera_test_trace_fixture))
+
+(rule
+ (targets
+  dialog-menu-submit.out
+  whiptail-menu-cancel.out
+  vt-form-edit.out
+  vt-scroll-redraw.out
+  vt-resize-redraw.out
+  vt-shell-session.out)
+ (deps
+  replay.exe
+  (glob_files ../node_pty/traces/*.json))
+ (action
+  (run ./replay.exe)))
+
+(rule
+ (alias runtest)
+ (deps
+  dialog-menu-submit.out
+  whiptail-menu-cancel.out
+  vt-form-edit.out
+  vt-scroll-redraw.out
+  vt-resize-redraw.out
+  vt-shell-session.out
+  goldens/dialog-menu-submit.out
+  goldens/whiptail-menu-cancel.out
+  goldens/vt-form-edit.out
+  goldens/vt-scroll-redraw.out
+  goldens/vt-resize-redraw.out
+  goldens/vt-shell-session.out)
+ (action
+  (progn
+   (diff goldens/dialog-menu-submit.out dialog-menu-submit.out)
+   (diff goldens/whiptail-menu-cancel.out whiptail-menu-cancel.out)
+   (diff goldens/vt-form-edit.out vt-form-edit.out)
+   (diff goldens/vt-scroll-redraw.out vt-scroll-redraw.out)
+   (diff goldens/vt-resize-redraw.out vt-resize-redraw.out)
+   (diff goldens/vt-shell-session.out vt-shell-session.out))))
+
+(alias
+ (name test-web-rendering-traces)
+ (deps
+  (alias runtest)))

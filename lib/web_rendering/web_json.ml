@@ -11,6 +11,16 @@ let invalid what = Jsont.Error.msg Jsont.Meta.none ("invalid " ^ what)
    input, so both boundaries agree by construction rather than by keeping two copies of the pattern in sync). *)
 let valid_channel n = n >= 0 && n <= 255
 
+(* The canonical, non-negative decimal encoding [Tessera_foundation.UInt.pp] (and therefore
+   [Generation.pp]/[Lineage_id.pp]) ever produces: only digits, no sign, no leading zero unless the
+   whole string is exactly ["0"]. Applied to both [generation] and [lineage_id] on both the decode and
+   encode paths (see [meta_jsont] and [validate_meta] below), so the "canonical decimal wire integer"
+   contract documented in web_json.mli is enforced by this codec itself, not merely a convention a
+   browser decoder happens to also check. *)
+let canonical_decimal s =
+  let n = String.length s in
+  n > 0 && String.for_all (fun c -> c >= '0' && c <= '9') s && (s.[0] <> '0' || n = 1)
+
 (* [start + width <= columns] without computing [start + width]: [Jsont.int] accepts any native int, including values
    near [max_int], so an externally-supplied [start + width] can wrap negative on the native runtime and slip past a
    naive addition-based check. Given [start >= 0] (checked separately wherever this is called), [start <= columns]
@@ -246,7 +256,9 @@ let geometry_jsont =
 
 let meta_jsont =
   Jsont.Object.map (fun kind active geometry generation lineage_id title ->
-      { kind; active; geometry; generation; lineage_id; title })
+      if canonical_decimal generation && canonical_decimal lineage_id then
+        { kind; active; geometry; generation; lineage_id; title }
+      else invalid "generation/lineage_id must be a canonical non-negative decimal integer")
   |> Jsont.Object.mem "kind" kind_jsont ~enc:(fun v -> v.kind)
   |> Jsont.Object.mem "active" screen_jsont ~enc:(fun v -> v.active)
   |> Jsont.Object.mem "geometry" geometry_jsont ~enc:(fun v -> v.geometry)
@@ -379,7 +391,27 @@ end
 module E = Err.Make (Error)
 
 let of_result = function Ok v -> Ok v | Error msg -> E.fail (`Json msg)
-let encode_html_frame v = of_result (Jsont_bytesrw.encode_string ~format:Jsont.Minify html_envelope_jsont v)
+
+(* [Jsont]'s [~enc] projections have no validation hook of their own (mirrors
+   {!Web_html.to_html} calling {!Web_html.validate} before rendering): a hand-built envelope whose
+   [meta.generation]/[meta.lineage_id] don't match {!canonical_decimal} would otherwise encode
+   successfully, making the "canonical decimal wire integer" promise false for any caller other than
+   {!meta_of_frame} (which always passes this by construction, since it builds both fields from
+   [Generation.pp]/[Lineage_id.pp]). *)
+let validate_meta (m : meta) : (unit, error) Err.t =
+  if canonical_decimal m.generation && canonical_decimal m.lineage_id then Ok ()
+  else E.fail (`Json "generation/lineage_id must be a canonical non-negative decimal integer")
+
+let encode_html_frame (v : html_envelope) =
+  match validate_meta v.meta with
+  | Error _ as e -> e
+  | Ok () -> of_result (Jsont_bytesrw.encode_string ~format:Jsont.Minify html_envelope_jsont v)
+
 let decode_html_frame s = of_result (Jsont_bytesrw.decode_string html_envelope_jsont s)
-let encode_canvas_frame v = of_result (Jsont_bytesrw.encode_string ~format:Jsont.Minify canvas_envelope_jsont v)
+
+let encode_canvas_frame (v : canvas_envelope) =
+  match validate_meta v.meta with
+  | Error _ as e -> e
+  | Ok () -> of_result (Jsont_bytesrw.encode_string ~format:Jsont.Minify canvas_envelope_jsont v)
+
 let decode_canvas_frame s = of_result (Jsont_bytesrw.decode_string canvas_envelope_jsont s)

@@ -21,7 +21,10 @@
 
 (alias
  (name jsoo)
- (deps js_smoke.bc.js web_rendering_codec/corpus.bc.js))
+ (deps
+  js_smoke.bc.js
+  web_rendering_codec/corpus.bc.js
+  web_bridge_equivalence/corpus.bc.js))
 
 (melange.emit
  (target melange-output)
@@ -33,4 +36,5 @@
 (alias
  (name tessera-melange)
  (deps
-  (alias web_rendering_codec/corpus-melange)))
+  (alias web_rendering_codec/corpus-melange)
+  (alias web_bridge_equivalence/corpus-melange)))
