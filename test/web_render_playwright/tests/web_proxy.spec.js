@@ -42,6 +42,7 @@ test('the served page, its static subresources, and the token-gated /session upg
       '/tessera-decode.js',
       '/tessera-driver.js',
       '/tessera-html-target.js',
+      '/proxy-input.js',
       '/proxy-web.js',
       '/fonts/jetbrains-mono-latin-400-normal.woff2',
     ]) {
@@ -116,6 +117,34 @@ test('an error-then-close on the live socket causes exactly one reconnect, with 
     // Exactly one reconnect: no second socket sneaks in from a duplicated error-then-close handling path.
     await page.waitForTimeout(700); // past RECONNECT_BACKOFF_MS, so a stray second reconnect would show up
     expect(await page.evaluate(() => window.__sockets.length)).toBe(socketCountBefore + 1);
+  } finally {
+    killProxy(proc);
+  }
+});
+
+test('an explicit browser controller lease injects basic keyboard and paste bytes into the real proxy session', async ({ page }) => {
+  const { proc, bootstrapUrl } = await spawnProxy({
+    token: 'playwright-control-token',
+    extraEnv: { TESSERA_PROXY_WEB_CONTROL: '1' },
+  });
+  try {
+    await page.goto(bootstrapUrl);
+    await expect(page.locator('.tessera-frame')).toHaveCount(1);
+    await expect(page.locator('#control-status')).toHaveText('Click terminal to request control');
+
+    // Before the first child output the mounted grid is intentionally zero-sized, so a normal
+    // Playwright click cannot target it yet. The browser application listens on its stable host
+    // container; dispatch the equivalent user gesture there.
+    await page.evaluate(() => document.getElementById('host').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })));
+    await expect(page.locator('#control-status')).toHaveText('Web terminal control active');
+    await page.keyboard.type('keyboard input');
+    await page.evaluate(() => {
+      const data = new DataTransfer();
+      data.setData('text/plain', ' + paste');
+      document.getElementById('host').dispatchEvent(new ClipboardEvent('paste', { bubbles: true, clipboardData: data }));
+    });
+    await page.keyboard.press('Enter');
+    await expect(page.locator('.tessera-frame')).toContainText('keyboard input + paste', { timeout: 5000 });
   } finally {
     killProxy(proc);
   }

@@ -39,6 +39,7 @@ type t =
   | Scroll_down of Tessera_foundation.UInt.t
   | Scroll_up of Tessera_foundation.UInt.t
   | Set_margins of margins
+  | Set_input_state of Input_state.delta
   | Set_mode of Mode.delta
   | Set_style of Style.delta
   | Set_tab

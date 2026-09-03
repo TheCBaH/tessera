@@ -50,6 +50,7 @@
   ../../web/tessera-decode.js
   ../../web/tessera-driver.js
   ../../web/tessera-html-target.js
+  ../../web/proxy-input.js
   ../../web/tessera.css
   ../../web/proxy-web.js
   ../../web/fonts/jetbrains-mono-latin-400-normal.woff2)

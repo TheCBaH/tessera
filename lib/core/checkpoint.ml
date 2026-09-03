@@ -131,7 +131,8 @@ let to_session (value : t) : (Session.t, error) Err.t =
                 | Ok decoder -> (
                     match Tessera_renderer.Renderer.decode (Wire.reader renderer_bytes) ~policy with
                     | Error error -> E.fail (`Renderer (Err.Error.kind error))
-                    | Ok renderer -> Ok (Session.make ~decoder ~policy ~renderer)))))
+                    | Ok renderer ->
+                        Ok (Session.make ~decoder ~input_state:Tessera_model.Input_state.default ~policy ~renderer)))))
 
 let of_bytes bytes = bytes
 let to_bytes value = value

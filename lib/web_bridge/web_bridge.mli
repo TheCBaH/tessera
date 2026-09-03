@@ -1,5 +1,5 @@
-(** The JS-host web-rendering bridge: the single, intentionally thin entry point a browser/Node host
-    drives. Each of {!push}/{!resize}/{!finish} does the whole pipeline in one call --
+(** The JS-host web-rendering bridge: the single, intentionally thin entry point a browser/Node host drives. Each of
+    {!push}/{!resize}/{!finish} does the whole pipeline in one call --
     {!Tessera_js_adapter.Js_adapter.push}/[resize]/[finish], {!Tessera_web_rendering.Web_frame.of_outcome}, then a
     {!target}-selected {!Tessera_web_rendering.Web_html}/{!Tessera_web_rendering.Web_canvas} projection encoded to
     canonical JSON via {!Tessera_web_rendering.Web_json} -- and returns that JSON string directly. It never walks cells,
@@ -14,8 +14,8 @@
 type t
 
 (** Fixed for a [t]'s whole lifetime, matching how a browser page mounts exactly one
-    {{!module:Tessera_web_rendering.Web_html}HTML} or {{!module:Tessera_web_rendering.Web_canvas}Canvas} target --
-    there is no per-call target switch. *)
+    {{!module:Tessera_web_rendering.Web_html}HTML} or {{!module:Tessera_web_rendering.Web_canvas}Canvas} target -- there
+    is no per-call target switch. *)
 type target = Html | Canvas
 
 type error =

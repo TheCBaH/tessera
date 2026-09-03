@@ -144,7 +144,15 @@ if [ -n "${PIN_PACKAGES}" ]; then
         IFS="$OLDIFS"
         entry=$(echo "$entry" | xargs)
         if [ -n "$entry" ]; then
+            # Check for a "name url" form (a git/path target, itself allowed to contain '#<ref>' to
+            # pin an exact branch/tag/commit) before a bare 'name#version' pin: a naive '#'-first check
+            # would misparse "pkg https://host/repo.git#<sha>" by splitting on the URL's OWN '#', not
+            # the separator between name and target.
             case "$entry" in
+                *' '*)
+                    pkg_name=$(echo "$entry" | awk '{print $1}')
+                    opam pin add --no-action $entry
+                    ;;
                 *#*)
                     pkg_name=$(echo "$entry" | cut -d'#' -f1)
                     pkg_ver=$(echo "$entry" | cut -d'#' -f2)

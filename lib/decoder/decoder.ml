@@ -2,6 +2,7 @@ open Tessera_foundation
 module Effect = Tessera_model.Effect
 module Unicode = Tessera_model.Unicode
 module Update = Tessera_model.Update
+module Input_state = Tessera_model.Input_state
 
 type control_string = Apc | Dcs | Pm | Sos
 
@@ -198,7 +199,15 @@ let csi params final =
         match values with
         | [ "47" ] | [ "1047" ] -> Some (Update.Switch_screen (if enabled then Types.Alternate else Types.Primary))
         | [ "1049" ] -> Some (Update.Alternate_screen (if enabled then `Enter_1049 else `Leave_1049))
-        | _ ->
+        | _ -> (
+            let rec input_modes delta = function
+              | [] -> Some delta
+              | value :: rest -> (
+                  let value = if value = "" then -1 else try int_of_string value with Failure _ -> -1 in
+                  match Input_state.private_mode_delta ~enabled value with
+                  | None -> None
+                  | Some update -> input_modes (Input_state.compose_delta ~earlier:delta ~later:update) rest)
+            in
             let rec modes delta = function
               | [] -> Some delta
               | value :: rest -> (
@@ -207,7 +216,9 @@ let csi params final =
                   | None -> None
                   | Some update -> modes (Tessera_model.Mode.compose_delta ~earlier:delta ~later:update) rest)
             in
-            Option.map (fun delta -> Update.Set_mode delta) (modes Tessera_model.Mode.empty_delta values))
+            match input_modes Input_state.empty_delta values with
+            | Some delta -> Some (Update.Set_input_state delta)
+            | None -> Option.map (fun delta -> Update.Set_mode delta) (modes Tessera_model.Mode.empty_delta values)))
     | 'h' | 'l' -> (
         let enabled = final = 'h' in
         match values with
@@ -387,6 +398,20 @@ let feed policy (continuation : continuation) slice =
                       Ok
                         (Ground, utf8, None, diagnostics_left, emit (emit items Update.Carriage_return) Update.Line_feed)
                   | 'H' -> Ok (Ground, utf8, None, diagnostics_left, emit items Update.Set_tab)
+                  | '=' ->
+                      Ok
+                        ( Ground,
+                          utf8,
+                          None,
+                          diagnostics_left,
+                          emit items (Update.Set_input_state (Input_state.keypad_delta ~enabled:true)) )
+                  | '>' ->
+                      Ok
+                        ( Ground,
+                          utf8,
+                          None,
+                          diagnostics_left,
+                          emit items (Update.Set_input_state (Input_state.keypad_delta ~enabled:false)) )
                   | 'M' -> Ok (Ground, utf8, None, diagnostics_left, emit items (Update.Scroll_down (uint 1)))
                   | '^' ->
                       let parser, items, diagnostics_left =

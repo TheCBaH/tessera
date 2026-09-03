@@ -23,6 +23,9 @@ let ingest_resize session columns rows =
 
 let note_outcome publisher outcome = ignore (or_fail_err publisher_pp (Publisher.note_outcome publisher outcome))
 
+let note_outcome_before publisher outcome =
+  ignore (or_fail_err publisher_pp (Publisher.note_outcome publisher ~before:(fun _ -> "input-state") outcome))
+
 let kind_of ~target text =
   match target with
   | Publisher.Html -> (
@@ -72,6 +75,16 @@ let%expect_test "an ordinary delta's content matches a directly-computed Web_fra
   in
   Format.printf "kind=%s equal=%b@." (kind_of ~target:Publisher.Html got) (String.equal got expected);
   [%expect {| kind=delta equal=true |}]
+
+let%expect_test "a control prefix stays immediately before its same-outcome frame" =
+  let publisher = Publisher.create ~max_pending_bytes:1_000_000 in
+  let client = Publisher.attach publisher ~target:Publisher.Html in
+  let session = make_session () in
+  note_outcome_before publisher (ingest_text session "hi");
+  let first = Option.get (Publisher.take_one_pending publisher client) in
+  let second = Option.get (Publisher.take_one_pending publisher client) in
+  Format.printf "%s then %s@." first (kind_of ~target:Publisher.Html second);
+  [%expect {| input-state then reset |}]
 
 let%expect_test "a resize upgrades the next delivered message to a reset for an already-attached client" =
   let publisher = Publisher.create ~max_pending_bytes:1_000_000 in

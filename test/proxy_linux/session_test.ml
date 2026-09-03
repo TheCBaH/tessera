@@ -129,6 +129,47 @@ let%expect_test "terminal-to-application bytes are relayed verbatim to the child
     the child received it verbatim: true
     first record: traffic(#0, terminal-to-application, 15 byte(s)) |}]
 
+let%expect_test "a controller queue serializes browser input and suppresses physical input while leased" =
+  let terminal_in_read, terminal_in_write = Unix.pipe () in
+  let session =
+    start ~policy:(or_fail (policy ())) ~terminal_in:terminal_in_read ~terminal_out:(snd (Unix.pipe ())) ()
+  in
+  let pty = Session.Loop.pty (Session.loop session) in
+  let start_cursor = Ring.cursor (Session.ring session) in
+  Session.set_terminal_input_gate session (fun () -> false);
+  ignore (Unix.write terminal_in_write (Bytes.of_string "physical") 0 8);
+  (match Lwt_main.run (Session.on_terminal_readable session) with
+  | Session.Terminal_input_ignored count -> Format.printf "physical input ignored: %d byte(s)@." count
+  | _ -> Format.printf "unexpected physical-input event@.");
+  Format.printf "physical reached child=%b@." (Option.is_some (Fake_platform.read_sent_to_child pty ~len:8));
+  let payload = Bytes.of_string "web\000paste" in
+  Format.printf "web enqueue=%b@." (Result.is_ok (Session.enqueue_web_input session payload));
+  let input_ready, wake_event = Lwt.wait () in
+  let stop, wake_stop = Lwt.wait () in
+  let on_event input_event =
+    match input_event with
+    | Session.Terminal_input_relayed count when Lwt.is_sleeping input_ready -> Lwt.wakeup_later wake_event count
+    | _ -> ()
+  in
+  let input_task = Session.run_web_input_loop session ~on_event ~stop in
+  let received =
+    Lwt.bind input_ready (fun count ->
+        let received = Fake_platform.read_sent_to_child pty ~len:count in
+        Lwt.wakeup_later wake_stop ();
+        Lwt.map (fun () -> received) input_task)
+  in
+  (match Lwt_main.run received with
+  | Some bytes -> Format.printf "web reached child verbatim=%b@." (String.equal bytes "web\000paste")
+  | None -> Format.printf "web reached child verbatim=false@.");
+  print_first_record (Session.ring session) start_cursor;
+  [%expect
+    {|
+    physical input ignored: 8 byte(s)
+    physical reached child=false
+    web enqueue=true
+    web reached child verbatim=true
+    first record: traffic(#0, terminal-to-application, 9 byte(s)) |}]
+
 (* Under the old [select]-based dispatch, the wake-up descriptor was always reported first when several descriptors
    were ready at once (proxy.md section 2 "Ordering against child output"). {!Session.run_master_loop},
    {!Session.run_terminal_loop}, and {!Session.Loop.wait_for_wakeup} are now three independent Lwt tasks with no

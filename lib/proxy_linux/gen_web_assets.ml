@@ -15,6 +15,7 @@ let routes web_dir =
     ("/tessera-decode.js", "text/javascript; charset=utf-8", asset "tessera-decode.js");
     ("/tessera-driver.js", "text/javascript; charset=utf-8", asset "tessera-driver.js");
     ("/tessera-html-target.js", "text/javascript; charset=utf-8", asset "tessera-html-target.js");
+    ("/proxy-input.js", "text/javascript; charset=utf-8", asset "proxy-input.js");
     ("/tessera.css", "text/css; charset=utf-8", asset "tessera.css");
     ("/proxy-web.js", "text/javascript; charset=utf-8", asset "proxy-web.js");
     ( "/fonts/jetbrains-mono-latin-400-normal.woff2",

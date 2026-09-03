@@ -19,6 +19,14 @@ FROM debian:${VARIANT}@${VARIANT_DIGEST}
 # same reason -- tessera-proxy needs a real controlling terminal to start at all, confirmed empirically;
 # a plain child_process.spawn with pipes fails at startup -- so it compiles the same native addon from
 # source via `make web-render-npm-install` (npm ci), against the same g++/python3/make prerequisites.
+# The libasound2t64..libxrandr2 block below covers Chromium's runtime shared-library closure (Playwright's
+# nativeDeps.ts "debian13-x64".chromium list, pinned to package-lock.json's playwright version): `make
+# playwright-browser-install` runs a bare `playwright install chromium`, which only downloads the browser
+# binary and never installs OS packages, so headless Chromium fails to launch (missing libglib-2.0.so.0
+# etc.) without these installed here. Trimmed to the list's roots -- packages apt won't already pull in as
+# a Depends of another entry here -- rather than listing all of nativeDeps.ts's packages flat; apt resolves
+# the rest (libatk1.0-0t64, libatspi2.0-0t64, libdbus-1-3, libdrm2, libglib2.0-0t64, libnspr4, libx11-6,
+# libxcb1, libxext6) itself.
 RUN set -eux;\
     apt-get update;\
     env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends\
@@ -36,6 +44,18 @@ RUN set -eux;\
   whiptail\
   wget\
   xz-utils\
+  libasound2t64\
+  libatk-bridge2.0-0t64\
+  libcairo2\
+  libcups2t64\
+  libgbm1\
+  libnss3\
+  libpango-1.0-0\
+  libxcomposite1\
+  libxdamage1\
+  libxfixes3\
+  libxkbcommon0\
+  libxrandr2\
 ;\
     apt-get autoremove -y; apt-get clean -y ; rm -rf /var/lib/apt/lists/*;\
     echo DONE

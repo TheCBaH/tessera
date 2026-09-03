@@ -18,12 +18,14 @@ val initial :
 
 val make :
   decoder:Tessera_decoder.Decoder.continuation ->
+  input_state:Tessera_model.Input_state.t ->
   policy:Tessera_foundation.Policy.t ->
   renderer:Tessera_renderer.Renderer.state ->
   t
 (** Reassemble a session from its three checkpointed components. Used only by [Checkpoint]. *)
 
 val decoder : t -> Tessera_decoder.Decoder.continuation
+val input_state_of_session : t -> Tessera_model.Input_state.t
 val policy : t -> Tessera_foundation.Policy.t
 val renderer : t -> Tessera_renderer.Renderer.state
 val items : outcome -> Tessera_model.Effect.Item_sequence.t
@@ -32,4 +34,5 @@ val pp : Format.formatter -> t -> unit
 val pp_error : Format.formatter -> error -> unit
 val pp_outcome : Format.formatter -> outcome -> unit
 val snapshot : outcome -> Tessera_renderer.Renderer.snapshot
+val input_state : outcome -> Tessera_model.Input_state.t
 val successor : outcome -> t

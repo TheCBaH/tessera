@@ -31,12 +31,27 @@ module Make (Platform : Tessera_proxy_platform.Platform.S) : sig
   val loop : t -> Loop.t
   val ring : t -> Tessera_proxy_observer.Ring.t
 
+  type web_input_error = [ `Too_large | `Queue_full ]
+
+  val pp_web_input_error : Format.formatter -> web_input_error -> unit
+
+  val set_terminal_input_gate : t -> (unit -> bool) -> unit
+  (** Sets the policy predicate for physical-terminal input. It defaults to [fun () -> true]. The stage-3 web controller
+      lease installs a predicate which returns false while a browser owns the lease, so physical and browser input
+      cannot both reach the child at once. *)
+
+  val enqueue_web_input : t -> bytes -> (unit, web_input_error) result
+  (** Copies a controller-authorized byte sequence into the bounded browser-input queue without doing I/O. [Ok ()] means
+      accepted/queued, not that the application has processed it. *)
+
   type event =
     | Application_bytes of Tessera.outcome  (** Application-to-terminal bytes were relayed and successfully ingested. *)
     | Application_ingest_failed of Tessera_lwt.Lwt_adapter.error Err.Error.t
         (** The bytes were still relayed to the real terminal verbatim; only decoding/ingestion failed. *)
     | Application_eof of Tessera.outcome  (** The child's master reached EOF; {!Tessera.finish} ran. *)
     | Terminal_input_relayed of int  (** [n] bytes were read from [terminal_in] and relayed to the child, verbatim. *)
+    | Terminal_input_ignored of int
+        (** Physical-terminal input discarded while an explicitly granted browser controller lease is active. *)
     | Terminal_input_eof  (** [terminal_in] reached EOF. *)
     | Resized of Loop.outcome
 
@@ -79,4 +94,8 @@ module Make (Platform : Tessera_proxy_platform.Platform.S) : sig
       event. Unlike {!run_master_loop}/{!run_terminal_loop}, a resize wake-up source has no EOF of its own, so this loop
       instead runs until [stop] resolves -- pass a promise the composition root resolves once the master or terminal
       loop above has ended the session. *)
+
+  val run_web_input_loop : t -> on_event:(event -> unit) -> stop:unit Lwt.t -> unit Lwt.t
+  (** Drains the browser-input queue until [stop] resolves. Writes share the same serialization lock as physical input
+      and publish exactly the same terminal-to-application observer traffic. *)
 end

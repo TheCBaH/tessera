@@ -86,12 +86,23 @@ let create_observer_server ~ring ~policy =
    socket's own default-on posture and {!default_socket_path}'s env-driven convention. Degrades to
    [None] on failure exactly like {!create_observer_server} -- this endpoint is a convenience, never a
    requirement for the relay itself to work. *)
-let create_web_server () =
+let create_web_server session =
   if Sys.getenv_opt "TESSERA_PROXY_WEB" = Some "0" then None
   else
-    match Web_server.create ~max_pending_bytes:1_048_576 ~write_timeout:30.0 ~close_flush_timeout:1.0 () with
+    let allow_control = Sys.getenv_opt "TESSERA_PROXY_WEB_CONTROL" = Some "1" in
+    let input bytes =
+      match Session.enqueue_web_input session bytes with
+      | Ok () -> Ok ()
+      | Error error -> Error (Format.asprintf "%a" Session.pp_web_input_error error)
+    in
+    match
+      Web_server.create ~input ~allow_control ~max_pending_bytes:1_048_576 ~write_timeout:30.0 ~close_flush_timeout:1.0
+        ()
+    with
     | Ok server ->
         Printf.eprintf "tessera-proxy: web: %s\n%!" (Web_server.bootstrap_url server);
+        if allow_control then
+          Printf.eprintf "tessera-proxy: web controller leases enabled (physical input yields while leased)\n%!";
         Some server
     | Error error ->
         Printf.eprintf "tessera-proxy: web endpoint disabled: %s\n%!"
@@ -115,16 +126,18 @@ let run_loop session observer web =
         Option.iter (fun server -> Web_server.note_outcome server outcome) web
     | Session.Application_ingest_failed _ -> Option.iter Observer_server.drain observer
     | Session.Terminal_input_relayed _ -> Option.iter Observer_server.drain observer
+    | Session.Terminal_input_ignored _ -> ()
     | Session.Terminal_input_eof -> ()
   in
   let stop, wake_stop = Lwt.wait () in
   let resize_task = Session.run_resize_loop session ~on_event ~stop in
   let observer_task = match observer with Some server -> Observer_server.run server ~stop | None -> stop in
   let web_task = match web with Some server -> Web_server.run server ~stop | None -> stop in
+  let web_input_task = Session.run_web_input_loop session ~on_event ~stop in
   Lwt_main.run
     (Lwt.bind (Session.run_relay session ~on_event) (fun () ->
          Lwt.wakeup_later wake_stop ();
-         Lwt.join [ resize_task; observer_task; web_task ]))
+         Lwt.join [ resize_task; observer_task; web_task; web_input_task ]))
 
 (* terminal-idea.md "Terminal descriptions and terminfo": discover and parse the host's own declared terminal type,
    or fall back to the bundled xterm-256color definition and advertise that fallback to the PTY-side application by
@@ -166,7 +179,10 @@ let () =
       | Error error -> die (Format.asprintf "%a" Session.Loop.pp_error error)
       | Ok session ->
           let observer = create_observer_server ~ring:(Session.ring session) ~policy in
-          let web = create_web_server () in
+          let web = create_web_server session in
+          Option.iter
+            (fun server -> Session.set_terminal_input_gate session (fun () -> Web_server.physical_input_allowed server))
+            web;
           Fun.protect
             ~finally:(fun () ->
               Option.iter Observer_server.close observer;

@@ -3,4 +3,4 @@
  (public_name tessera.model)
  (modes byte native melange)
  (libraries tessera_foundation tessera_uucp tessera_uuseg tessera_uutf)
- (modules style mode unicode cell collection update effect))
+ (modules style mode input_state unicode cell collection update effect))

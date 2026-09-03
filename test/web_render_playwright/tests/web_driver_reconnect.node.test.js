@@ -62,7 +62,7 @@ function newId() {
 }
 
 function sendControl(ws, body) {
-  ws.send(JSON.stringify(Object.assign({ schema: CONTROL_SCHEMA, version: 1 }, body)));
+  ws.send(JSON.stringify(Object.assign({ schema: CONTROL_SCHEMA, version: 2 }, body)));
 }
 
 function waitForOpen(ws) {

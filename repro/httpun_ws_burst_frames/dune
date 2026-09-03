@@ -1,0 +1,14 @@
+(executable
+ (name repro)
+ (libraries
+  lwt
+  lwt.unix
+  bigstringaf
+  digestif
+  gluten
+  gluten-lwt
+  gluten-lwt-unix
+  httpun
+  httpun-lwt-unix
+  httpun-ws
+  httpun-ws-lwt-unix))

@@ -14,7 +14,16 @@
         },
         "./features/ocaml": {
             "version": "${localEnv:OCAML_VERSION:4.14.3}",
-            "packages": "async bytesrw crowbar digestif fmt httpun httpun-lwt-unix httpun-ws httpun-ws-lwt httpun-ws-lwt-unix jsont js_of_ocaml lwt melange memtrace ocamlformat#0.28.1 ppx_expect qcheck"
+            "packages": "async bytesrw crowbar digestif fmt httpun httpun-lwt-unix httpun-ws-lwt httpun-ws-lwt-unix jsont js_of_ocaml lwt melange memtrace ocamlformat#0.28.1 ppx_expect qcheck",
+            // httpun-ws 0.2.0's Websocket_connection._next_read_operation only advances its internal
+            // frame_queue by one already-parsed frame per real socket read (its `Read branch returns
+            // immediately instead of recursing like the structurally identical `Close branch does): a
+            // peer that sends several small WebSocket frames back-to-back with no yield, then goes quiet,
+            // permanently strands every frame past the first couple -- a silent, 0%-CPU, no-error,
+            // no-timeout hang, reproduced standalone in ../repro/httpun_ws_burst_frames. Pinned to a
+            // one-line fork fix pending upstream (https://github.com/anmonteiro/httpun-ws) until a
+            // release includes it.
+            "pin-packages": "httpun-ws https://github.com/TheCBaH/httpun-ws.git#7b4ccd5139b9cebffcd641796e91baa7303433c9"
         },
     },
     "customizations": {

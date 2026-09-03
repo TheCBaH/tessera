@@ -12,7 +12,15 @@ module Make (Platform : Tessera_proxy_platform.Platform.S) = struct
     terminal_out_lwt : Lwt_unix.file_descr;
     master_buffer : bytes;
     terminal_buffer : bytes;
+    master_write_mutex : Lwt_mutex.t;
+    web_input : bytes Queue.t;
+    web_input_wake : unit Lwt_condition.t;
+    mutable queued_web_input_bytes : int;
+    web_input_capacity : int;
+    mutable terminal_input_gate : unit -> bool;
   }
+
+  let web_input_capacity = 65_536
 
   let create ~argv ~env ~lineage_id ~policy ~terminal_in ~terminal_out ~observer_capacity ~observer_start_position
       ~read_buffer_bytes =
@@ -28,16 +36,42 @@ module Make (Platform : Tessera_proxy_platform.Platform.S) = struct
             terminal_out_lwt = Lwt_unix.of_unix_file_descr ~blocking:false terminal_out;
             master_buffer = Bytes.create read_buffer_bytes;
             terminal_buffer = Bytes.create read_buffer_bytes;
+            master_write_mutex = Lwt_mutex.create ();
+            web_input = Queue.create ();
+            web_input_wake = Lwt_condition.create ();
+            queued_web_input_bytes = 0;
+            web_input_capacity;
+            terminal_input_gate = (fun () -> true);
           }
 
   let loop t = t.loop
   let ring t = t.ring
+
+  type web_input_error = [ `Too_large | `Queue_full ]
+
+  let pp_web_input_error ppf = function
+    | `Too_large -> Format.pp_print_string ppf "too-large"
+    | `Queue_full -> Format.pp_print_string ppf "queue-full"
+
+  let set_terminal_input_gate t gate = t.terminal_input_gate <- gate
+
+  let enqueue_web_input t bytes =
+    let length = Bytes.length bytes in
+    if length > t.web_input_capacity then Error `Too_large
+    else if t.queued_web_input_bytes + length > t.web_input_capacity then Error `Queue_full
+    else begin
+      Queue.push (Bytes.copy bytes) t.web_input;
+      t.queued_web_input_bytes <- t.queued_web_input_bytes + length;
+      Lwt_condition.signal t.web_input_wake ();
+      Ok ()
+    end
 
   type event =
     | Application_bytes of Tessera.outcome
     | Application_ingest_failed of Tessera_lwt.Lwt_adapter.error Err.Error.t
     | Application_eof of Tessera.outcome
     | Terminal_input_relayed of int
+    | Terminal_input_ignored of int
     | Terminal_input_eof
     | Resized of Loop.outcome
 
@@ -59,6 +93,14 @@ module Make (Platform : Tessera_proxy_platform.Platform.S) = struct
       else Lwt.return_unit
     in
     loop 0
+
+  let write_master t buffer ~len =
+    Lwt_mutex.with_lock t.master_write_mutex (fun () -> write_all t.master_lwt buffer ~len)
+
+  let publish_terminal_input t bytes =
+    Observer.Ring.publish t.ring
+      (Observer.Record.traffic ~sequence:(Observer.Ring.next_sequence t.ring)
+         ~direction:Foundation.Types.Terminal_to_application ~bytes)
 
   (* On Linux, once every slave-side descriptor of a PTY has closed (the child exited and nothing else
      holds the slave open), a read on the master returns EIO, not the ordinary EOF (0). This is the
@@ -116,11 +158,10 @@ module Make (Platform : Tessera_proxy_platform.Platform.S) = struct
   let on_terminal_readable t =
     Lwt.bind (read_once t.terminal_in_lwt t.terminal_buffer) (fun count ->
         if count = 0 then Lwt.return Terminal_input_eof
+        else if not (t.terminal_input_gate ()) then Lwt.return (Terminal_input_ignored count)
         else
-          Lwt.bind (write_all t.master_lwt t.terminal_buffer ~len:count) (fun () ->
-              Observer.Ring.publish t.ring
-                (Observer.Record.traffic ~sequence:(Observer.Ring.next_sequence t.ring)
-                   ~direction:Foundation.Types.Terminal_to_application ~bytes:(Bytes.sub t.terminal_buffer 0 count));
+          Lwt.bind (write_master t t.terminal_buffer ~len:count) (fun () ->
+              publish_terminal_input t (Bytes.sub t.terminal_buffer 0 count);
               Lwt.return (Terminal_input_relayed count)))
 
   let on_wakeup t =
@@ -166,6 +207,22 @@ module Make (Platform : Tessera_proxy_platform.Platform.S) = struct
      which [read_master]/[read_once] do not (and must not) catch, so it propagates up and ends the
      loser's loop right away rather than leaving it registered until process exit. *)
   let run_relay t ~on_event = Lwt.pick [ run_master_loop t ~on_event; run_terminal_loop t ~on_event ]
+
+  let rec run_web_input_loop t ~on_event ~stop =
+    match Queue.take_opt t.web_input with
+    | Some bytes ->
+        t.queued_web_input_bytes <- t.queued_web_input_bytes - Bytes.length bytes;
+        Lwt.bind
+          (write_master t bytes ~len:(Bytes.length bytes))
+          (fun () ->
+            publish_terminal_input t bytes;
+            on_event (Terminal_input_relayed (Bytes.length bytes));
+            run_web_input_loop t ~on_event ~stop)
+    | None ->
+        Lwt.bind
+          (Lwt.pick
+             [ Lwt.map (fun () -> `Input) (Lwt_condition.wait t.web_input_wake); Lwt.map (fun () -> `Stop) stop ])
+          (function `Input -> run_web_input_loop t ~on_event ~stop | `Stop -> Lwt.return_unit)
 
   (* Has no EOF of its own (a resize wake-up source never "ends"), so it runs until [stop] resolves -- the
      composition root signals that once the master or terminal loop above has ended the session. *)

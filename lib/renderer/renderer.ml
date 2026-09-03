@@ -564,6 +564,7 @@ let apply_operation state = function
       State.with_active_buffer state
         (State.with_cursor buffer { cursor with style = Tessera_model.Style.apply_delta cursor.style delta })
   | Update.Set_mode delta -> State.with_modes state (Tessera_model.Mode.apply_delta (State.modes state) delta)
+  | Update.Set_input_state _ -> state
   | Update.Set_margins margins ->
       if not (valid_margins state margins) then state
       else

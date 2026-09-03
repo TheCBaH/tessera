@@ -20,6 +20,21 @@ let%expect_test "public session composes decoder and renderer" =
   Format.printf "%a@." (pp_result Model.Cell.pp_contents) result;
   [%expect {| glyph(<U+0041>) |}]
 
+let%expect_test "application output updates the separate authoritative input-mode state" =
+  let result =
+    let* policy = policy ()
+    and* size = size 2 1
+    and* lineage_id = uint 3
+    and* slice = slice "\027[?1;1004;1006;2004h\027=" in
+    let session = Tessera.initial ~lineage_id:(Foundation.Lineage_id.of_uint lineage_id) ~policy ~size in
+    Result.map Tessera.outcome_input_state
+      (with_error_kind Tessera.Session.pp_error (Tessera.ingest session (Tessera.Bytes slice)))
+  in
+  Format.printf "%a@." (pp_result Tessera.Input_state.pp) result;
+  [%expect
+    {|
+    {application_cursor=true; application_keypad=true; bracketed_paste=true; focus_reporting=true; mouse_tracking=off; mouse_encoding=sgr} |}]
+
 let%expect_test "session resize ingress is ordered, observable, and does not consume bytes" =
   let result =
     let* policy = policy ()

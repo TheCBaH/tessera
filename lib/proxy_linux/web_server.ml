@@ -28,7 +28,7 @@ module Status = Httpun.Status
 module Body = Httpun.Body
 
 let ( let* ) = Result.bind
-let max_control_message_bytes = 4096
+let max_control_message_bytes = 100_000
 
 (* --- small helpers --- *)
 
@@ -105,6 +105,7 @@ let sha1 s = s |> Digestif.SHA1.digest_string |> Digestif.SHA1.to_raw_string
 (* --- per-connection state --- *)
 
 type fragment_state = Idle | In_text of Buffer.t
+type input_handler = bytes -> (unit, string) result
 
 type conn = {
   wake : unit Lwt_condition.t;
@@ -125,8 +126,12 @@ type t = {
   write_timeout : float;
   close_flush_timeout : float;
   routes : (string * (string * string)) list;
+  input : input_handler option;
+  allow_control : bool;
+  mutable controller : conn option;
   mutable conns : conn list;
   mutable lifecycles : connection_lifecycle list;
+  mutable last_outcome : Tessera.outcome option;
 }
 
 let close_connection lifecycle =
@@ -147,6 +152,38 @@ let port t = t.port
 let token t = t.token
 let bootstrap_url t = Printf.sprintf "http://127.0.0.1:%d/?token=%s" t.port t.token
 let client_count t = Publisher.client_count t.publisher
+let physical_input_allowed t = Option.is_none t.controller
+
+let input_state_message outcome =
+  let view = Tessera.Input_state.view (Tessera.outcome_input_state outcome) in
+  let mouse_tracking =
+    match view.mouse_tracking with
+    | Tessera.Input_state.Off -> `Off
+    | Tessera.Input_state.X10 -> `X10
+    | Tessera.Input_state.Button_event -> `Button_event
+    | Tessera.Input_state.Any_event -> `Any_event
+  in
+  let mouse_encoding =
+    match view.mouse_encoding with
+    | Tessera.Input_state.Default -> `Default
+    | Tessera.Input_state.Utf8 -> `Utf8
+    | Tessera.Input_state.Sgr -> `Sgr
+    | Tessera.Input_state.Urxvt -> `Urxvt
+  in
+  let generation =
+    Format.asprintf "%a" Tessera.Generation.pp (Tessera.Renderer.generation (Tessera.outcome_snapshot outcome))
+  in
+  Control.encode_server_message
+    (Control.Input_state
+       {
+         generation;
+         application_cursor = view.application_cursor;
+         application_keypad = view.application_keypad;
+         bracketed_paste = view.bracketed_paste;
+         focus_reporting = view.focus_reporting;
+         mouse_tracking;
+         mouse_encoding;
+       })
 
 (* --- websocket connection handler --- *)
 
@@ -209,6 +246,7 @@ let websocket_handler t lifecycle wsd =
       conn.cleaned_up <- true;
       conn.closing <- true;
       (match conn.state with `Attached client -> Publisher.detach t.publisher client | `Awaiting_hello -> ());
+      (match t.controller with Some controller when controller == conn -> t.controller <- None | _ -> ());
       t.conns <- List.filter (fun c -> c != conn) t.conns;
       Lwt_condition.signal conn.wake ()
     end
@@ -226,13 +264,19 @@ let websocket_handler t lifecycle wsd =
           | Some json ->
               let settled = ref false in
               let promise, resolver = Lwt.task () in
+              (* Wsd.flushed is Faraday.flush, which invokes its
+                 callback immediately when the writer is already idle at registration time -- so
+                 registering it before this send_bytes would report the *previous* idle state, not
+                 this frame's flush, silently disabling the write_timeout bound below for a send that
+                 genuinely never completes. Enqueue first, then register flushed, so the callback can
+                 only fire once *this* frame has actually drained. *)
+              let bytes = Bytes.of_string json in
+              Httpun_ws.Wsd.send_bytes wsd ~kind:`Text bytes ~off:0 ~len:(Bytes.length bytes);
               Httpun_ws.Wsd.flushed wsd (fun () ->
                   if not !settled then begin
                     settled := true;
                     Lwt.wakeup_later resolver ()
                   end);
-              let bytes = Bytes.of_string json in
-              Httpun_ws.Wsd.send_bytes wsd ~kind:`Text bytes ~off:0 ~len:(Bytes.length bytes);
               Lwt.bind
                 (Lwt.pick
                    [
@@ -263,12 +307,23 @@ let websocket_handler t lifecycle wsd =
                 match target with Control.Html -> Publisher.Html | Control.Canvas -> Publisher.Canvas
               in
               let client = Publisher.attach t.publisher ~target:publisher_target in
+              Option.iter (Publisher.prepend_pending t.publisher client) (Option.map input_state_message t.last_outcome);
               conn.state <- `Attached client;
               send_text
                 (Control.encode_server_message
-                   (Control.Ready { id; capabilities = { observe = true; input = false; resize = false } }));
+                   (Control.Ready
+                      {
+                        id;
+                        capabilities =
+                          { observe = true; input = t.allow_control && Option.is_some t.input; resize = false };
+                      }));
               Lwt.async writer_loop
-          | `Awaiting_hello, (Control.Resync { id } | Control.Close { id }) ->
+          | ( `Awaiting_hello,
+              ( Control.Resync { id }
+              | Control.Close { id }
+              | Control.Acquire_control { id }
+              | Control.Release_control { id }
+              | Control.Input { id; _ } ) ) ->
               terminate ~code:`Protocol_error
                 ~message:
                   (Control.encode_server_message (Control.Error { id = Some id; message = "hello required first" }))
@@ -278,7 +333,49 @@ let websocket_handler t lifecycle wsd =
                 ~message:(Control.encode_server_message (Control.Error { id = Some id; message = "already attached" }))
                 ()
           | `Attached _, (Control.Resync { id } | Control.Close { id }) ->
-              terminate ~code:`Normal_closure ~message:(Control.encode_server_message (Control.Result { id })) ())
+              terminate ~code:`Normal_closure ~message:(Control.encode_server_message (Control.Result { id })) ()
+          | `Attached _, Control.Acquire_control { id } -> (
+              if (not t.allow_control) || Option.is_none t.input then
+                send_text
+                  (Control.encode_server_message
+                     (Control.Error { id = Some id; message = "browser control is disabled" }))
+              else
+                match t.controller with
+                | None ->
+                    t.controller <- Some conn;
+                    Option.iter (fun outcome -> send_text (input_state_message outcome)) t.last_outcome;
+                    send_text (Control.encode_server_message (Control.Result { id }))
+                | Some controller when controller == conn ->
+                    send_text (Control.encode_server_message (Control.Result { id }))
+                | Some _ ->
+                    send_text
+                      (Control.encode_server_message
+                         (Control.Error { id = Some id; message = "controller lease is held by another client" })))
+          | `Attached _, Control.Release_control { id } ->
+              if match t.controller with Some controller -> controller == conn | None -> false then begin
+                t.controller <- None;
+                send_text (Control.encode_server_message (Control.Result { id }))
+              end
+              else
+                send_text
+                  (Control.encode_server_message
+                     (Control.Error { id = Some id; message = "controller lease required" }))
+          | `Attached _, Control.Input { id; bytes } -> (
+              if not (match t.controller with Some controller -> controller == conn | None -> false) then
+                send_text
+                  (Control.encode_server_message
+                     (Control.Error { id = Some id; message = "controller lease required" }))
+              else
+                match t.input with
+                | None ->
+                    send_text
+                      (Control.encode_server_message
+                         (Control.Error { id = Some id; message = "browser input is unavailable" }))
+                | Some handoff -> (
+                    match handoff bytes with
+                    | Ok () -> send_text (Control.encode_server_message (Control.Result { id }))
+                    | Error message ->
+                        send_text (Control.encode_server_message (Control.Error { id = Some id; message })))))
   in
 
   (* [Payload.schedule_read]'s [on_eof]/[on_read] are each one-shot: "once either of these callbacks
@@ -444,7 +541,8 @@ let backlog = 16
 let ignore_unix_error thunk = try thunk () with Unix.Unix_error (_, _, _) -> ()
 let env_int name = match Sys.getenv_opt name with None -> None | Some s -> int_of_string_opt s
 
-let create ?port ?token ?ready_file ~max_pending_bytes ~write_timeout ~close_flush_timeout () =
+let create ?port ?token ?ready_file ?input ?(allow_control = false) ~max_pending_bytes ~write_timeout
+    ~close_flush_timeout () =
   let requested_port = match port with Some p -> Some p | None -> env_int "TESSERA_PROXY_WEB_PORT" in
   let requested_token = match token with Some t -> Some t | None -> Sys.getenv_opt "TESSERA_PROXY_WEB_TOKEN" in
   let ready_file = match ready_file with Some f -> Some f | None -> Sys.getenv_opt "TESSERA_PROXY_WEB_READY_FILE" in
@@ -487,8 +585,12 @@ let create ?port ?token ?ready_file ~max_pending_bytes ~write_timeout ~close_flu
       write_timeout;
       close_flush_timeout;
       routes = List.map (fun (route, content_type, body) -> (route, (content_type, body))) Web_assets.routes;
+      input;
+      allow_control;
+      controller = None;
       conns = [];
       lifecycles = [];
+      last_outcome = None;
     }
   in
   Option.iter
@@ -499,7 +601,8 @@ let create ?port ?token ?ready_file ~max_pending_bytes ~write_timeout ~close_flu
   Ok t
 
 let note_outcome t outcome =
-  (match Publisher.note_outcome t.publisher outcome with
+  t.last_outcome <- Some outcome;
+  (match Publisher.note_outcome t.publisher ~before:(fun _target -> input_state_message outcome) outcome with
   | Ok () -> ()
   | Error err ->
       Printf.eprintf "tessera-proxy: web publisher: %s\n%!"

@@ -39,6 +39,7 @@ type t =
   | Scroll_down of Tessera_foundation.UInt.t
   | Scroll_up of Tessera_foundation.UInt.t
   | Set_margins of margins
+  | Set_input_state of Input_state.delta
   | Set_mode of Mode.delta
   | Set_style of Style.delta
   | Set_tab
@@ -97,6 +98,7 @@ let pp ppf = function
   | Scroll_down value -> Format.fprintf ppf "scroll-down(%a)" pp_uint value
   | Scroll_up value -> Format.fprintf ppf "scroll-up(%a)" pp_uint value
   | Set_margins value -> Format.fprintf ppf "set-margins(%a)" pp_margins value
+  | Set_input_state value -> Format.fprintf ppf "set-input-state(%a)" Input_state.pp_delta value
   | Set_mode value -> Format.fprintf ppf "set-mode(%a)" Mode.pp_delta value
   | Set_style value -> Format.fprintf ppf "set-style(%a)" Style.pp_delta value
   | Set_tab -> Format.pp_print_string ppf "set-tab"
@@ -119,6 +121,8 @@ module Batch = struct
           loop accumulator (Set_style (Style.compose_delta ~earlier:left ~later:right) :: rest)
       | Set_mode left :: Set_mode right :: rest ->
           loop accumulator (Set_mode (Mode.compose_delta ~earlier:left ~later:right) :: rest)
+      | Set_input_state left :: Set_input_state right :: rest ->
+          loop accumulator (Set_input_state (Input_state.compose_delta ~earlier:left ~later:right) :: rest)
       | item :: rest -> loop (item :: accumulator) rest
       | [] -> List.rev accumulator
     in

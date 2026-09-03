@@ -24,6 +24,18 @@
   font-display: block;
 }
 
+#control-status {
+  padding: 0.4rem 0.6rem;
+  color: var(--tessera-default-fg);
+  background: #252525;
+  font: 12px/1.2 sans-serif;
+}
+
+#host:focus {
+  outline: 1px solid var(--tessera-color-12);
+  outline-offset: 2px;
+}
+
 :root {
   --tessera-default-fg: #d4d4d4;
   --tessera-default-bg: #1e1e1e;

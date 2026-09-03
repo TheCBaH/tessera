@@ -25,10 +25,24 @@
   'use strict';
 
   var CONTROL_SCHEMA = 'tessera.proxy-web';
-  var CONTROL_VERSION = 1;
+  var CONTROL_VERSION = 2;
   var WEB_FRAME_SCHEMA = 'tessera.web-frame';
   var RECONNECT_BACKOFF_MS = 500;
   var DEFAULT_METRICS = { cellWidth: 9, cellHeight: 18, lineHeight: 18, fontFamily: 'Tessera Mono', fontWeight: 400 };
+  // Mirrors lib/model/input_state.ml's own `default`: the modes a session starts in before the
+  // application has changed anything. No `tessera.web-frame`/`input_state` message is ever sent until
+  // the child has produced its first outcome (lib/proxy_linux/web_server.ml's `note_outcome`), which a
+  // perfectly quiet child (nothing printed yet -- no prompt, no output) may never do on its own. Used
+  // only for that pre-first-outcome bootstrap window, below.
+  var DEFAULT_INPUT_STATE = {
+    generation: null,
+    application_cursor: false,
+    application_keypad: false,
+    bracketed_paste: false,
+    focus_reporting: false,
+    mouse_tracking: 'off',
+    mouse_encoding: 'default',
+  };
 
   function randomId() {
     return Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -52,6 +66,17 @@
     } catch (err) {
       /* ignored: the connection is going away regardless */
     }
+  }
+
+  function bytesToBase64(bytes) {
+    var binary = '';
+    for (var i = 0; i < bytes.length; i += 1) binary += String.fromCharCode(bytes[i]);
+    return window.btoa(binary);
+  }
+
+  function setControlStatus(text) {
+    var status = document.getElementById('control-status');
+    if (status) status.textContent = text;
   }
 
   var cachedMetrics = null;
@@ -99,7 +124,16 @@
     if (!current || current.generation !== gen) return;
     var record = current;
     current = null;
+    record.host.removeEventListener('pointerdown', record.onPointerDown);
+    record.host.removeEventListener('pointermove', record.onPointerMove);
+    record.host.removeEventListener('pointerup', record.onPointerUp);
+    record.host.removeEventListener('keydown', record.onKeyDown);
+    record.host.removeEventListener('paste', record.onPaste);
+    record.host.removeEventListener('focus', record.onFocus);
+    record.host.removeEventListener('blur', record.onBlur);
+    record.host.removeEventListener('compositionend', record.onCompositionEnd);
     record.driver.dispose();
+    setControlStatus('Read-only terminal mirror');
     scheduleReconnect();
   }
 
@@ -129,7 +163,124 @@
     });
 
     var ws = new WebSocket(sessionUrl(tokenFromLocation()));
-    current = { generation: gen, ws: ws, driver: driver, target: target };
+    host.tabIndex = 0;
+    var commandKinds = Object.create(null);
+    var record = {
+      generation: gen,
+      ws: ws,
+      driver: driver,
+      target: target,
+      host: host,
+      inputCapable: false,
+      controller: false,
+      acquirePending: false,
+      inputState: null,
+      geometry: null,
+      commandKinds: commandKinds,
+      onPointerDown: null,
+      onPointerMove: null,
+      onPointerUp: null,
+      onKeyDown: null,
+      onPaste: null,
+      onFocus: null,
+      onBlur: null,
+      onCompositionEnd: null,
+    };
+
+    function sendCommand(kind, body) {
+      if (!current || current.generation !== gen) return;
+      var id = randomId();
+      commandKinds[id] = kind;
+      sendControlMessage(ws, Object.assign({ type: kind, id: id }, body || {}));
+    }
+
+    // Deliberately not gated on `record.inputState.generation === record.displayGeneration`: every
+    // input_state a client ever receives (web_publisher.ml's `note_outcome` always enqueues
+    // `[input_state; frame]` together for a given generation, in that order; hello/acquire_control-time
+    // catch-up sends are likewise always sourced from the same monotonic `last_outcome`) describes a
+    // generation that is already-displayed or newer -- never older/stale -- so the freshest input_state
+    // received is always safe to encode with, even in the brief window before its matching
+    // tessera.web-frame has arrived. Requiring exact equality here used to drop real keystrokes
+    // whenever a keydown landed in that window (visible under fast/scripted typing, since each relayed
+    // byte the child echoes back can bump the generation).
+    function currentInputState() {
+      // No authoritative input_state has arrived yet at all -- e.g. control was just acquired on a
+      // freshly spawned, still-silent child. Without this, every keystroke is silently dropped forever
+      // (encodeKeyboardEvent requires non-null state) and the session can never bootstrap its first
+      // outcome, since that requires the child to echo *something* back first.
+      return record.inputState || DEFAULT_INPUT_STATE;
+    }
+
+    function sendInput(value) {
+      if (!record.controller || ws.readyState !== WebSocket.OPEN || !value) return;
+      var bytes = value instanceof Uint8Array ? value : new TextEncoder().encode(value);
+      if (!bytes.length) return;
+      sendCommand('input', { bytes_b64: bytesToBase64(bytes) });
+    }
+
+    function pointerGeometry() {
+      if (!record.geometry) return null;
+      return { columns: record.geometry.columns, rows: record.geometry.rows, rect: host.getBoundingClientRect() };
+    }
+
+    function sendPointer(event) {
+      var state = currentInputState();
+      if (!state) return;
+      var input = window.Tessera.ProxyInput.encodePointer(event, state, pointerGeometry());
+      if (input !== null) {
+        event.preventDefault();
+        sendInput(input);
+      }
+    }
+
+    record.onPointerDown = function (event) {
+      if (record.controller) {
+        sendPointer(event);
+        return;
+      }
+      if (!record.inputCapable || record.acquirePending) return;
+      record.acquirePending = true;
+      setControlStatus('Requesting terminal control…');
+      sendCommand('acquire_control');
+    };
+    record.onPointerMove = function (event) {
+      if (record.controller) sendPointer(event);
+    };
+    record.onPointerUp = function (event) {
+      if (record.controller) sendPointer(event);
+    };
+    record.onKeyDown = function (event) {
+      if (!record.controller) return;
+      var state = currentInputState();
+      if (!state) return;
+      var text = window.Tessera.ProxyInput.encodeKeyboardEvent(event, state);
+      if (text !== null) {
+        event.preventDefault();
+        sendInput(text);
+      }
+    };
+    record.onPaste = function (event) {
+      if (!record.controller) return;
+      var text = event.clipboardData && event.clipboardData.getData('text/plain');
+      if (text) {
+        event.preventDefault();
+        sendInput(window.Tessera.ProxyInput.encodePaste(text, currentInputState()));
+      }
+    };
+    record.onFocus = function () { sendInput(window.Tessera.ProxyInput.encodeFocus(true, currentInputState())); };
+    record.onBlur = function () { sendInput(window.Tessera.ProxyInput.encodeFocus(false, currentInputState())); };
+    record.onCompositionEnd = function (event) {
+      if (record.controller && event.data) sendInput(event.data);
+    };
+    host.addEventListener('pointerdown', record.onPointerDown);
+    host.addEventListener('pointermove', record.onPointerMove);
+    host.addEventListener('pointerup', record.onPointerUp);
+    host.addEventListener('keydown', record.onKeyDown);
+    host.addEventListener('paste', record.onPaste);
+    host.addEventListener('focus', record.onFocus);
+    host.addEventListener('blur', record.onBlur);
+    host.addEventListener('compositionend', record.onCompositionEnd);
+    current = record;
 
     ws.onopen = function () {
       if (!current || current.generation !== gen) return;
@@ -148,13 +299,43 @@
       if (!parsed || typeof parsed !== 'object') return;
       if (parsed.schema === WEB_FRAME_SCHEMA) {
         driver.ingest(event.data);
+        if (parsed.meta && parsed.meta.geometry) {
+          record.geometry = parsed.meta.geometry;
+        }
         return;
       }
-      if (parsed.schema === CONTROL_SCHEMA && parsed.type === 'error' && typeof console !== 'undefined') {
-        console.error('tessera-proxy control error', parsed.id, parsed.message);
+      if (parsed.schema === CONTROL_SCHEMA && parsed.type === 'ready') {
+        record.inputCapable = !!(parsed.capabilities && parsed.capabilities.input);
+        setControlStatus(record.inputCapable ? 'Click terminal to request control' : 'Read-only terminal mirror');
+        return;
       }
-      // "ready"/"result" carry nothing this client needs to act on: connection identity is the
-      // WebSocket itself, not a server-issued id.
+      if (parsed.schema === CONTROL_SCHEMA && parsed.type === 'input_state') {
+        record.inputState = parsed.input_state || null;
+        return;
+      }
+      if (parsed.schema === CONTROL_SCHEMA && parsed.type === 'result') {
+        var resultKind = commandKinds[parsed.id];
+        delete commandKinds[parsed.id];
+        if (resultKind === 'acquire_control') {
+          record.acquirePending = false;
+          record.controller = true;
+          host.focus();
+          setControlStatus('Web terminal control active');
+        } else if (resultKind === 'release_control') {
+          record.controller = false;
+          setControlStatus('Click terminal to request control');
+        }
+        return;
+      }
+      if (parsed.schema === CONTROL_SCHEMA && parsed.type === 'error') {
+        var errorKind = commandKinds[parsed.id];
+        delete commandKinds[parsed.id];
+        if (errorKind === 'acquire_control') {
+          record.acquirePending = false;
+          setControlStatus('Terminal control unavailable');
+        }
+        if (typeof console !== 'undefined') console.error('tessera-proxy control error', parsed.id, parsed.message);
+      }
     };
 
     // Never disposes or reconnects itself -- only closes the still-current socket, which always

@@ -14,6 +14,7 @@ end
 module Model : sig
   module Style = Tessera_model.Style
   module Mode = Tessera_model.Mode
+  module Input_state = Tessera_model.Input_state
   module Unicode = Tessera_model.Unicode
   module Cell = Tessera_model.Cell
   module Collection = Tessera_model.Collection
@@ -33,6 +34,7 @@ module Limits = Foundation.Limits
 module Policy = Foundation.Policy
 module Style = Model.Style
 module Mode = Model.Mode
+module Input_state = Model.Input_state
 module Unicode = Model.Unicode
 module Cell = Model.Cell
 module Collection = Model.Collection
@@ -61,6 +63,7 @@ val initial : lineage_id:Lineage_id.t -> policy:Policy.t -> size:Types.Size.t ->
 val outcome_items : outcome -> Effect.Item_sequence.t
 val outcome_patch : outcome -> Patch.t
 val outcome_snapshot : outcome -> Renderer.snapshot
+val outcome_input_state : outcome -> Input_state.t
 val pp_outcome : Format.formatter -> outcome -> unit
 val pp_session : Format.formatter -> session -> unit
 val session : outcome -> session

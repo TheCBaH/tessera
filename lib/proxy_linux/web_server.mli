@@ -1,9 +1,9 @@
 (** A local, loopback-only WebSocket server exposing {!Tessera_proxy_web_publisher.Web_publisher} to a browser, over the
-    [tessera.proxy-web] control channel ({!Tessera_proxy_web_protocol.Control}) and [tessera.web-frame] payload stream,
-    Mirrors {!Observer_server}'s lifecycle shape ([create], [run ~stop], [close]) so it
-    plugs into [proxy.ml] the same way, but speaks WebSocket ([httpun-ws]) instead of the raw length-delimited observer
-    protocol, and is one-way-authenticated (token + Origin) since it is reachable from any process on the same host, not
-    just one holding a private, mode-restricted Unix-domain socket path.
+    [tessera.proxy-web] control channel ({!Tessera_proxy_web_protocol.Control}) and [tessera.web-frame] payload stream.
+    Mirrors {!Observer_server}'s lifecycle shape ([create], [run ~stop], [close]) so it plugs into [proxy.ml] the same
+    way, but speaks WebSocket ([httpun-ws]) instead of the raw length-delimited observer protocol, and is
+    one-way-authenticated (token + Origin) since it is reachable from any process on the same host, not just one holding
+    a private, mode-restricted Unix-domain socket path.
 
     {2 Authentication/permission model}
 
@@ -58,10 +58,16 @@ val pp_error : Format.formatter -> error -> unit
 
 type t
 
+type input_handler = bytes -> (unit, string) result
+(** A non-blocking handoff into the proxy session's bounded PTY-input queue. [Ok ()] means accepted/queued; [Error] is
+    safe to expose as a command error. *)
+
 val create :
   ?port:int ->
   ?token:string ->
   ?ready_file:string ->
+  ?input:input_handler ->
+  ?allow_control:bool ->
   max_pending_bytes:int ->
   write_timeout:float ->
   close_flush_timeout:float ->
@@ -75,12 +81,14 @@ val create :
     exist because [proxy.ml] wants the env-var hook with zero extra plumbing, while an in-process OCaml test wants a
     fixed port/token without mutating global process state.
 
-    [max_pending_bytes] bounds each client's own queued-but-unsent output, exactly like {!Observer_server.create}'s
-    parameter of the same name. [write_timeout] is how long a connected client may go without draining its own socket
-    before this server force-closes its descriptor. [close_flush_timeout] bounds the final best-effort wait on
-    [Wsd.flushed] after a server-initiated close (protocol violation, [Resync], [Close]); when it expires, this module
-    closes the descriptor and detaches the client. A live, reading peer receives the Error/Result and Close frames as
-    soon as its writer loop flushes them.
+    [input] and [allow_control] are both required to advertise or grant the stage-3 browser controller lease. They
+    default to disabled, retaining the release-one read-only endpoint. The composition root enables them only for an
+    explicit local policy. [max_pending_bytes] bounds each client's own queued-but-unsent output, exactly like
+    {!Observer_server.create}'s parameter of the same name. [write_timeout] is how long a connected client may go
+    without draining its own socket before this server force-closes its descriptor. [close_flush_timeout] bounds the
+    final best-effort wait on [Wsd.flushed] after a server-initiated close (protocol violation, [Resync], [Close]); when
+    it expires, this module closes the descriptor and detaches the client. A live, reading peer receives the
+    Error/Result and Close frames as soon as its writer loop flushes them.
 
     If reading/generating the token fails (e.g. [/dev/urandom] is unavailable), returns [`Token_unavailable] rather than
     falling back to weak randomness; the caller ([proxy.ml]) is expected to log this and disable the web endpoint for
@@ -104,6 +112,10 @@ val run : t -> stop:unit Lwt.t -> unit Lwt.t
 val client_count : t -> int
 (** The number of currently-attached (post-[Hello]) {!Tessera_proxy_web_publisher.Web_publisher} clients. For
     diagnostics/tests only. *)
+
+val physical_input_allowed : t -> bool
+(** [false] exactly while an attached browser owns the controller lease. The proxy session uses this predicate to
+    prevent physical-terminal bytes from racing an explicitly granted web controller. *)
 
 val close : t -> unit
 (** Closes the listen socket, so no new connection is accepted. Idempotent and synchronous, like

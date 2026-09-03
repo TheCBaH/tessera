@@ -38,13 +38,21 @@ let build target kind ~snapshot ~patch =
   in
   encode_json target frame
 
-let enqueue client json =
-  Queue.push json client.pending;
-  client.pending_bytes <- client.pending_bytes + String.length json
+let enqueue client messages =
+  List.iter (fun json -> Queue.push json client.pending) messages;
+  client.pending_bytes <-
+    client.pending_bytes + List.fold_left (fun total json -> total + String.length json) 0 messages
 
 let clear client =
   Queue.clear client.pending;
   client.pending_bytes <- 0
+
+let prepend_pending _t client message =
+  let queued = Queue.to_seq client.pending |> List.of_seq in
+  Queue.clear client.pending;
+  Queue.push message client.pending;
+  List.iter (fun json -> Queue.push json client.pending) queued;
+  client.pending_bytes <- client.pending_bytes + String.length message
 
 let attach t ~target =
   let client = { target; needs_reset = true; pending = Queue.create (); pending_bytes = 0 } in
@@ -58,7 +66,7 @@ let attach t ~target =
           match encode_json target frame with
           | Error _ -> ()
           | Ok json ->
-              enqueue client json;
+              enqueue client [ json ];
               client.needs_reset <- false)));
   t.clients <- client :: t.clients;
   client
@@ -67,7 +75,7 @@ let detach t client = t.clients <- List.filter (fun c -> c != client) t.clients
 
 (* Keyed by (target, kind); at most 4 distinct (target, kind) combinations exist, so a small assoc list beats
    pulling in a Hashtbl for one call's lifetime. *)
-let note_outcome t outcome =
+let note_outcome t ?before outcome =
   t.last_outcome <- Some outcome;
   match t.clients with
   | [] -> Ok ()
@@ -91,15 +99,20 @@ let note_outcome t outcome =
           match get client.target kind with
           | Error e -> note_error e
           | Ok json ->
+              let messages = Option.to_list (Option.map (fun make -> make client.target) before) @ [ json ] in
               if client.needs_reset then (
-                enqueue client json;
+                enqueue client messages;
                 client.needs_reset <- false)
-              else if client.pending_bytes + String.length json > t.max_pending_bytes then (
+              else if
+                client.pending_bytes + List.fold_left (fun total message -> total + String.length message) 0 messages
+                > t.max_pending_bytes
+              then (
                 clear client;
                 match get client.target `Reset with
                 | Error e -> note_error e
-                | Ok reset_json -> enqueue client reset_json)
-              else enqueue client json)
+                | Ok reset_json ->
+                    enqueue client (Option.to_list (Option.map (fun make -> make client.target) before) @ [ reset_json ]))
+              else enqueue client messages)
         clients;
       (match !first_error with None -> Ok () | Some e -> Error e : (unit, error) Err.t)
 
