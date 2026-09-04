@@ -69,7 +69,7 @@ jobs:
     # exactly what `actions/cache` reads/restores outside it.
     - name: node-pty cache
       id: node-pty-cache
-      uses: actions/cache@v5
+      uses: actions/cache@v6
       with:
         path: test/node_pty/node_modules
         key: node-pty-${{ runner.os }}-${{ matrix.platform }}-${{ hashFiles('test/node_pty/package-lock.json') }}
@@ -89,7 +89,7 @@ jobs:
     # needing a new node_modules install too).
     - name: web-render npm cache
       id: web-render-npm-cache
-      uses: actions/cache@v5
+      uses: actions/cache@v6
       with:
         path: test/web_render_playwright/node_modules
         key: web-render-npm-${{ runner.os }}-${{ matrix.platform }}-${{ hashFiles('test/web_render_playwright/package-lock.json') }}
@@ -99,7 +99,7 @@ jobs:
         ${{ env.EXEC }} make web-render-npm-install
     - name: web-render playwright browser cache
       id: web-render-browser-cache
-      uses: actions/cache@v5
+      uses: actions/cache@v6
       with:
         path: ~/.cache/ms-playwright
         key: web-render-playwright-browser-${{ runner.os }}-${{ matrix.platform }}-1.62.1
